@@ -1,0 +1,56 @@
+/* ===========================================================
+   Potentiel Immo — Pages légales (mentions légales, confidentialité)
+   Réutilise le design system de la landing (style.css)
+   =========================================================== */
+
+.legal-body{ background: var(--cream); }
+
+.legal-main{ padding: 56px 0 100px; }
+.legal-container{ max-width: 760px; }
+
+.legal-eyebrow{
+  font-family: var(--font-body); font-size: 12.5px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--blue);
+  margin: 0 0 10px;
+}
+.legal-title{
+  font-family: var(--font-display); font-size: 36px; font-weight: 500;
+  color: var(--navy); margin: 0 0 8px;
+}
+.legal-updated{ font-size: 13px; color: var(--gray-light); margin: 0 0 48px; }
+
+.legal-section{ margin-bottom: 36px; }
+.legal-section h2{
+  font-family: var(--font-display); font-size: 21px; font-weight: 500;
+  color: var(--navy); margin: 0 0 14px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.legal-section h3{
+  font-family: var(--font-body); font-size: 14.5px; font-weight: 700;
+  color: var(--navy); margin: 20px 0 8px;
+}
+.legal-section p{
+  font-size: 15px; line-height: 1.7; color: var(--navy); margin: 0 0 12px;
+  opacity: 0.85;
+}
+.legal-section p strong{ opacity: 1; font-weight: 700; }
+.legal-section a{ color: var(--blue); text-decoration: underline; text-underline-offset: 2px; }
+
+.legal-list{ margin: 0 0 12px; padding-left: 20px; }
+.legal-list li{
+  font-size: 15px; line-height: 1.7; color: var(--navy); opacity: 0.85;
+  margin-bottom: 8px;
+}
+.legal-list li strong{ opacity: 1; font-weight: 700; }
+
+.legal-note{
+  font-size: 13px; line-height: 1.6; color: var(--gray);
+  background: var(--blue-tint); border-radius: var(--radius-md);
+  padding: 14px 16px; margin-top: 12px; font-style: italic;
+}
+
+@media (max-width: 600px){
+  .legal-main{ padding: 36px 0 70px; }
+  .legal-title{ font-size: 28px; }
+  .legal-section h2{ font-size: 18px; }
+}
