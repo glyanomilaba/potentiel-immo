@@ -58,11 +58,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Chargement des biens et de leur dernière estimation
   // -----------------------------------------------------------
   async function loadAndRenderProperties(userId) {
+    console.log('[diag] loadAndRenderProperties: démarrage, userId =', userId);
     let properties = [];
     try {
       properties = await window.PotentielData.listProperties(userId);
+      console.log('[diag] listProperties OK, nombre de biens =', properties.length, properties);
     } catch (err) {
-      console.error('Échec du chargement des biens', err);
+      console.error('[diag] Échec du chargement des biens', err);
       const detail = (err && err.message) ? err.message : 'erreur inconnue';
       loadingEl.innerHTML = `<p>Impossible de charger vos biens pour le moment (${escapeHtml(detail)}). Réessayez dans un instant.</p>`;
       loadingEl.hidden = false;
@@ -72,31 +74,53 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     loadingEl.hidden = true;
+    console.log('[diag] loadingEl masqué');
 
     if (properties.length === 0) {
+      console.log('[diag] Aucun bien, affichage état vide');
       emptyEl.hidden = false;
       return;
     }
 
     gridEl.hidden = false;
+    console.log('[diag] Avant Promise.all sur', properties.length, 'bien(s)');
 
     // charge en parallèle la dernière estimation de chaque bien
-    const propertiesWithEstimation = await Promise.all(
-      properties.map(async (property) => {
-        let lastEstimation = null;
-        try {
-          const estimations = await window.PotentielData.listEstimations(property.id);
-          lastEstimation = estimations[0] || null;
-        } catch (err) {
-          console.warn('Estimation indisponible pour le bien', property.id, err);
-        }
-        return { property, lastEstimation };
-      })
-    );
+    let propertiesWithEstimation;
+    try {
+      propertiesWithEstimation = await Promise.all(
+        properties.map(async (property) => {
+          console.log('[diag] traitement du bien', property.id);
+          let lastEstimation = null;
+          try {
+            const estimations = await window.PotentielData.listEstimations(property.id);
+            console.log('[diag] listEstimations OK pour', property.id, '→', estimations.length, 'estimation(s)');
+            lastEstimation = estimations[0] || null;
+          } catch (err) {
+            console.warn('[diag] Estimation indisponible pour le bien', property.id, err);
+          }
+          return { property, lastEstimation };
+        })
+      );
+      console.log('[diag] Promise.all terminé avec succès', propertiesWithEstimation);
+    } catch (err) {
+      console.error('[diag] Promise.all a levé une exception inattendue', err);
+      loadingEl.hidden = false;
+      loadingEl.innerHTML = `<p>Une erreur inattendue est survenue (${escapeHtml(err && err.message || 'inconnue')}).</p>`;
+      gridEl.hidden = true;
+      return;
+    }
 
+    console.log('[diag] Début de la construction des cartes');
     propertiesWithEstimation.forEach(({ property, lastEstimation }) => {
-      gridEl.appendChild(buildPropertyCard(property, lastEstimation));
+      try {
+        gridEl.appendChild(buildPropertyCard(property, lastEstimation));
+        console.log('[diag] Carte ajoutée pour', property.id);
+      } catch (err) {
+        console.error('[diag] Échec de la construction de la carte pour', property.id, err);
+      }
     });
+    console.log('[diag] Fin du rendu des cartes');
   }
 
   // -----------------------------------------------------------
