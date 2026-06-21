@@ -24,6 +24,10 @@
       <a href="#confiance">Données</a>
       <a href="#avis">Avis</a>
     </nav>
+    <div class="header-auth-zone" id="headerAuthZone">
+      <!-- rempli dynamiquement par landing-auth.js selon l'état de connexion :
+           soit "Se connecter / S'inscrire", soit "Bonjour [Prénom]" + bouton espace client -->
+    </div>
     <a href="#" class="btn btn-primary btn-header" data-cta="header">
       Estimer mon bien
     </a>
@@ -339,6 +343,8 @@
   </div>
 </footer>
 
+<script src="js/auth.js"></script>
+<script src="js/landing-auth.js"></script>
 <script src="js/landing-link.js"></script>
 </body>
 </html>

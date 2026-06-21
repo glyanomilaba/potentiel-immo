@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mon espace — Potentiel Immo</title>
+<meta name="description" content="Suivez vos biens et retrouvez vos estimations Potentiel Immo.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/espace-client.css">
+</head>
+<body class="ec-body">
+
+<header class="site-header">
+  <div class="container header-inner">
+    <a href="landing.html" class="logo">
+      <span class="logo-text">Potentiel<em>Immo</em></span>
+    </a>
+    <div class="header-auth-zone" id="headerAuthZone">
+      <!-- rempli dynamiquement par espace-client.js -->
+    </div>
+  </div>
+</header>
+
+<main class="ec-main">
+  <div class="container">
+
+    <!-- En-tête de la page : salutation + action principale -->
+    <div class="ec-page-header">
+      <div>
+        <p class="ec-eyebrow">Mon espace</p>
+        <h1 class="ec-title" id="ecGreeting">Bonjour</h1>
+        <p class="ec-subtitle">Retrouvez vos biens, leurs estimations, et suivez leur potentiel dans le temps.</p>
+      </div>
+      <a href="index.html?nouveau=1" class="btn btn-primary ec-new-btn">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2.5V13.5M2.5 8H13.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        Estimer un nouveau bien
+      </a>
+    </div>
+
+    <!-- État de chargement -->
+    <div class="ec-loading" id="ecLoading">
+      <div class="ec-spinner"></div>
+      <p>Chargement de vos biens…</p>
+    </div>
+
+    <!-- État vide : aucun bien encore enregistré -->
+    <div class="ec-empty" id="ecEmpty" hidden>
+      <div class="ec-empty-icon">
+        <svg width="40" height="40" viewBox="0 0 40 40" fill="none"><path d="M6 18L20 7L34 18V33C34 33.5523 33.5523 34 33 34H7C6.44772 34 6 33.5523 6 33V18Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M16 34V22H24V34" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      </div>
+      <h2>Aucun bien pour l'instant</h2>
+      <p>Lancez votre première estimation pour voir apparaître votre bien ici.</p>
+      <a href="index.html" class="btn btn-primary">Commencer une estimation</a>
+    </div>
+
+    <!-- Grille des biens -->
+    <div class="ec-properties-grid" id="ecPropertiesGrid" hidden></div>
+
+  </div>
+</main>
+
+<!-- Gabarit (template) d'une carte de bien, cloné en JS pour chaque bien -->
+<template id="ecPropertyCardTemplate">
+  <article class="ec-property-card">
+    <div class="ec-property-card-top">
+      <div>
+        <p class="ec-property-type"></p>
+        <h3 class="ec-property-label"></h3>
+        <p class="ec-property-address"></p>
+      </div>
+      <button type="button" class="ec-property-menu-btn" aria-label="Options du bien">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="4" r="1.4" fill="currentColor"/><circle cx="9" cy="9" r="1.4" fill="currentColor"/><circle cx="9" cy="14" r="1.4" fill="currentColor"/></svg>
+      </button>
+      <div class="ec-property-menu" hidden>
+        <button type="button" class="ec-menu-edit">Modifier les réponses</button>
+        <button type="button" class="ec-menu-delete">Supprimer ce bien</button>
+      </div>
+    </div>
+
+    <div class="ec-property-figure-block">
+      <span class="ec-property-figure-label"></span>
+      <span class="ec-property-figure"></span>
+    </div>
+
+    <div class="ec-property-card-footer">
+      <span class="ec-property-date"></span>
+      <div class="ec-property-actions">
+        <button type="button" class="ec-pdf-btn">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 1.5H8.5L11 4V12.5H3V1.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8.5 1.5V4H11" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+          PDF
+        </button>
+        <button type="button" class="ec-reestimate-btn">Réestimer</button>
+      </div>
+    </div>
+  </article>
+</template>
+
+<script src="js/auth.js"></script>
+<script src="js/data-store.js"></script>
+<script src="js/estimation-engine.js"></script>
+<script src="js/finance-calculator.js"></script>
+<script src="js/report-generator.js"></script>
+<script src="js/espace-client.js"></script>
+</body>
+</html>

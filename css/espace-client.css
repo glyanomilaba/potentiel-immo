@@ -1,0 +1,138 @@
+/* ===========================================================
+   Potentiel Immo — Espace client
+   Réutilise le design system de la landing (variables dans style.css :
+   --navy, --blue, --cyan, --cream, --green, --font-display, etc.)
+   =========================================================== */
+
+.ec-body{ background: var(--cream); min-height: 100vh; }
+
+.ec-main{ padding: 56px 0 120px; }
+
+/* ---------- En-tête de page ---------- */
+.ec-page-header{
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 24px; flex-wrap: wrap; margin-bottom: 48px;
+}
+.ec-eyebrow{
+  font-family: var(--font-body); font-size: 12.5px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--blue);
+  margin: 0 0 8px;
+}
+.ec-title{
+  font-family: var(--font-display); font-size: 38px; font-weight: 500;
+  color: var(--navy); margin: 0 0 8px; line-height: 1.1;
+}
+.ec-subtitle{ font-size: 15px; color: var(--gray); margin: 0; max-width: 480px; }
+.ec-new-btn{ display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+
+/* ---------- État de chargement ---------- */
+.ec-loading{
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
+  padding: 80px 20px; color: var(--gray); font-size: 14px;
+}
+.ec-spinner{
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 3px solid var(--blue-tint); border-top-color: var(--blue);
+  animation: ec-spin 0.8s linear infinite;
+}
+@keyframes ec-spin{ to{ transform: rotate(360deg); } }
+
+/* ---------- État vide ---------- */
+.ec-empty{
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: 14px; padding: 80px 20px; max-width: 380px; margin: 0 auto;
+}
+.ec-empty-icon{
+  width: 72px; height: 72px; border-radius: 50%;
+  background: var(--blue-tint); color: var(--blue);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 6px;
+}
+.ec-empty h2{ font-family: var(--font-display); font-size: 22px; color: var(--navy); margin: 0; font-weight: 500; }
+.ec-empty p{ font-size: 14px; color: var(--gray); margin: 0 0 8px; }
+
+/* ---------- Grille des biens (élément signature de la page) ---------- */
+.ec-properties-grid{
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 22px;
+}
+
+.ec-property-card{
+  background: #fff; border-radius: var(--radius-lg); border: 1px solid var(--line);
+  padding: 26px 24px 22px;
+  display: flex; flex-direction: column; gap: 20px;
+  position: relative;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.ec-property-card:hover{
+  box-shadow: 0 20px 40px -20px rgba(11,30,61,0.18);
+  transform: translateY(-2px);
+}
+
+.ec-property-card-top{ display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.ec-property-type{
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--blue); margin: 0 0 4px;
+}
+.ec-property-label{
+  font-family: var(--font-display); font-size: 19px; font-weight: 500;
+  color: var(--navy); margin: 0 0 4px; line-height: 1.25;
+}
+.ec-property-address{ font-size: 12.5px; color: var(--gray); margin: 0; line-height: 1.4; }
+
+.ec-property-menu-btn{
+  width: 32px; height: 32px; border-radius: 8px; border: none; background: transparent;
+  color: var(--gray); cursor: pointer; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s ease;
+}
+.ec-property-menu-btn:hover{ background: var(--cream-2); color: var(--navy); }
+.ec-property-menu{
+  position: absolute; top: 56px; right: 24px; z-index: 5;
+  background: #fff; border: 1px solid var(--line-strong); border-radius: var(--radius-md);
+  box-shadow: 0 16px 32px -12px rgba(11,30,61,0.25);
+  min-width: 180px; overflow: hidden;
+}
+.ec-property-menu button{
+  display: block; width: 100%; text-align: left; padding: 11px 16px;
+  font-family: var(--font-body); font-size: 13.5px; color: var(--navy);
+  background: none; border: none; cursor: pointer;
+}
+.ec-property-menu button:hover{ background: var(--cream); }
+.ec-menu-delete{ color: #DC2626 !important; }
+
+.ec-property-figure-block{
+  background: var(--blue-tint); border-radius: var(--radius-md);
+  padding: 16px 18px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.ec-property-figure-label{ font-size: 11.5px; color: var(--gray); }
+.ec-property-figure{ font-family: var(--font-display); font-size: 24px; font-weight: 500; color: var(--blue); }
+
+.ec-property-card-footer{
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.ec-property-date{ font-size: 11.5px; color: var(--gray-light); }
+.ec-property-actions{ display: flex; gap: 8px; }
+
+.ec-pdf-btn, .ec-reestimate-btn{
+  font-family: var(--font-body); font-size: 12.5px; font-weight: 600;
+  border-radius: 999px; padding: 7px 14px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.ec-pdf-btn{ background: var(--cream-2); color: var(--navy); border: 1px solid var(--line-strong); }
+.ec-pdf-btn:hover{ background: #fff; transform: translateY(-1px); }
+.ec-reestimate-btn{ background: var(--navy); color: var(--cream); border: 1px solid var(--navy); }
+.ec-reestimate-btn:hover{ background: var(--navy-2); transform: translateY(-1px); }
+
+.ec-pdf-btn:disabled, .ec-reestimate-btn:disabled{ opacity: 0.5; pointer-events: none; }
+
+/* ---------- Mobile ---------- */
+@media (max-width: 600px){
+  .ec-main{ padding: 36px 0 90px; }
+  .ec-page-header{ flex-direction: column; align-items: flex-start; gap: 18px; }
+  .ec-title{ font-size: 30px; }
+  .ec-new-btn{ width: 100%; justify-content: center; }
+  .ec-properties-grid{ grid-template-columns: 1fr; }
+}

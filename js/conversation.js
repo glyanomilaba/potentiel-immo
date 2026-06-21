@@ -110,6 +110,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // -----------------------------------------------------------
   const answers = {};
   let lastEstimationResult = null; // conserve le résultat complet du moteur, pour le PDF/email
+  let convAuthenticatedUserId = null; // id du compte Supabase une fois connecté, null sinon
+  let convReestimatePropertyId = null; // id du bien existant si on est en mode réestimation, null sinon
   let flowIndex = 0;
   let hasStarted = false;
   const historyStack = []; // pile de { index, answersSnapshot, blockTitleBefore }
@@ -605,51 +607,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => input.focus(), 100);
   }
 
-  function renderEmailCapture(stage, onAnswered) {
-    const wrap = document.createElement('div');
-    wrap.className = 'conv-contact-wrap';
-    wrap.innerHTML = `
-      <div class="conv-input-row">
-        <input type="email" placeholder="votre@email.fr" inputmode="email" aria-label="Votre email">
-      </div>
-      <div class="conv-input-row">
-        <input type="tel" placeholder="Votre numéro de téléphone" inputmode="tel" aria-label="Votre téléphone">
-        <button type="button" class="conv-send-btn" aria-label="Envoyer" disabled>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8H14M14 8L9.5 3.5M14 8L9.5 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-      </div>
-    `;
-    stage.appendChild(wrap);
-
-    const emailInput = wrap.querySelector('input[type="email"]');
-    const phoneInput = wrap.querySelector('input[type="tel"]');
-    const sendBtn = wrap.querySelector('.conv-send-btn');
-
-    function isPhoneValid(value) {
-      // au moins 6 chiffres, pour rester tolérant aux formats (espaces, +33, etc.)
-      return (value.match(/\d/g) || []).length >= 6;
-    }
-
-    function refreshSendState() {
-      sendBtn.disabled = !emailInput.value.includes('@') || !isPhoneValid(phoneInput.value);
-    }
-
-    emailInput.addEventListener('input', refreshSendState);
-    phoneInput.addEventListener('input', refreshSendState);
-
-    function submit() {
-      const email = emailInput.value.trim();
-      const phone = phoneInput.value.trim();
-      if (!email.includes('@') || !isPhoneValid(phone)) return;
-      onAnswered(email, phone);
-    }
-
-    sendBtn.addEventListener('click', submit);
-    emailInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') phoneInput.focus(); });
-    phoneInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
-    setTimeout(() => emailInput.focus(), 100);
-  }
-
   // -----------------------------------------------------------
   // Scène d'accueil : présentation de Loop + pause d'engagement
   // -----------------------------------------------------------
@@ -839,6 +796,36 @@ document.addEventListener('DOMContentLoaded', () => {
     return result;
   }
 
+  // -----------------------------------------------------------
+  // Clé de sauvegarde temporaire des réponses, utilisée uniquement le
+  // temps d'une redirection vers Google (l'utilisateur quitte la page
+  // puis y revient une fois authentifié — sans cette sauvegarde, tout
+  // l'historique du questionnaire serait perdu au retour).
+  // -----------------------------------------------------------
+  const PENDING_ANSWERS_KEY = 'potentielImmo.pendingAnswers';
+
+  function savePendingAnswersBeforeRedirect() {
+    try {
+      localStorage.setItem(PENDING_ANSWERS_KEY, JSON.stringify(answers));
+    } catch (err) {
+      console.warn('Impossible de sauvegarder temporairement les réponses avant redirection.', err);
+    }
+  }
+
+  function restorePendingAnswersIfAny() {
+    try {
+      const raw = localStorage.getItem(PENDING_ANSWERS_KEY);
+      if (!raw) return false;
+      const restored = JSON.parse(raw);
+      Object.assign(answers, restored);
+      localStorage.removeItem(PENDING_ANSWERS_KEY);
+      return true;
+    } catch (err) {
+      console.warn('Impossible de restaurer les réponses après redirection.', err);
+      return false;
+    }
+  }
+
   async function renderTeaser() {
     renderScene((stage) => {
       addTypingThen(stage, "Voilà, votre analyse est prête.", async () => {
@@ -865,121 +852,78 @@ document.addEventListener('DOMContentLoaded', () => {
         teaser.innerHTML = `
           <span class="conv-teaser-label">Potentiel identifié</span>
           <span class="conv-teaser-figure"><span class="conv-teaser-blur">${figureText}</span><span class="conv-teaser-unit">${unitText}</span></span>
-          <span class="conv-teaser-hint">Recevez le détail complet et les recommandations par email</span>
+          <span class="conv-teaser-hint">${convAuthenticatedUserId ? 'Votre estimation mise à jour' : 'Connectez-vous pour recevoir le détail complet et suivre ce bien'}</span>
         `;
         stage.appendChild(teaser);
 
         setTimeout(() => {
-          addTypingThen(stage, "À quelle adresse email et à quel numéro puis-je vous joindre ? Un conseiller pourra ainsi vous appeler pour commenter votre analyse.", () => {
-            renderFinalEmailCapture(stage);
+          if (convAuthenticatedUserId) {
+            // déjà connecté (mode réestimation) : pas besoin de repasser
+            // par l'authentification, on enchaîne directement
+            addTypingThen(stage, "Je mets à jour votre estimation…", () => {
+              finalizeJourney(stage);
+            });
+            return;
+          }
+          addTypingThen(stage, "Pour découvrir le détail complet de votre analyse et la retrouver à tout moment, connectez-vous ou créez votre compte gratuit.", () => {
+            renderAuthGate(stage);
           });
         }, 600);
       });
     });
   }
 
-  function renderFinalEmailCapture(stage) {
-    renderEmailCapture(stage, async (email, phone) => {
-      answers.email = email;
-      answers.telephone = phone;
-      convProgressLabel.textContent = 'Analyse terminée';
-      convBackBtn.disabled = true;
+  // -----------------------------------------------------------
+  // Porte d'authentification obligatoire avant d'accéder au détail de
+  // l'estimation. Propose Google en avant, email/mot de passe en
+  // option. Une fois authentifié (par l'une ou l'autre méthode), enchaîne
+  // sur la capture du téléphone puis la finalisation du parcours.
+  // -----------------------------------------------------------
+  function renderAuthGate(stage) {
+    const wrap = document.createElement('div');
+    wrap.className = 'conv-account-wrap';
 
-      renderScene((finalStage) => {
-        addTypingThen(finalStage, "Merci ! J'enregistre votre demande et je prépare votre rapport…", () => {});
-      });
-
-      const [airtableSuccess, emailResult] = await Promise.all([
-        sendToAirtable(answers),
-        (window.EmailService
-          ? window.EmailService.sendReportEmails(answers, lastEstimationResult).catch(err => {
-              console.error('Échec de l\'envoi du rapport par email', err);
-              return { success: false };
-            })
-          : Promise.resolve({ success: false })),
-      ]);
-
-      const firstName = answers.prenom ? answers.prenom.trim() : '';
-      const greeting = firstName ? `Merci ${firstName} ! ` : 'Merci ! ';
-
-      renderScene((finalStage) => {
-        const message = airtableSuccess
-          ? `${greeting}Votre analyse personnalisée pour votre ${(answers.typeBien || 'bien').toLowerCase()} arrive par email dans quelques instants. Un conseiller vous appellera prochainement pour vous expliquer les résultats en détail et répondre à toutes vos questions.`
-          : `${greeting}Votre demande a bien été reçue. Un léger souci technique est survenu de notre côté, mais ne vous inquiétez pas : un conseiller vous recontactera rapidement pour faire le point avec vous.`;
-        addTypingThen(finalStage, message, () => {
-          setTimeout(() => renderAccountProposal(), 700);
-        });
-      });
+    const googleBtn = document.createElement('button');
+    googleBtn.type = 'button';
+    googleBtn.className = 'conv-choice-btn conv-google-btn';
+    googleBtn.innerHTML = `
+      <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84c-.21 1.13-.84 2.09-1.8 2.73v2.27h2.91c1.7-1.57 2.69-3.88 2.69-6.64z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.81 5.96-2.18l-2.91-2.27c-.81.54-1.84.86-3.05.86-2.35 0-4.34-1.58-5.05-3.71H.96v2.34C2.44 15.98 5.48 18 9 18z"/><path fill="#FBBC05" d="M3.95 10.7c-.18-.54-.28-1.11-.28-1.7s.1-1.16.28-1.7V4.96H.96A8.99 8.99 0 0 0 0 9c0 1.45.35 2.83.96 4.04l2.99-2.34z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0 5.48 0 2.44 2.02.96 4.96l2.99 2.34C4.66 5.16 6.65 3.58 9 3.58z"/></svg>
+      <span>Continuer avec Google</span>
+    `;
+    googleBtn.addEventListener('click', async () => {
+      googleBtn.disabled = true;
+      try {
+        if (window.PotentielAuth) {
+          // sauvegarde les réponses avant de quitter la page : Google
+          // redirige le navigateur, donc le code JS en cours s'arrête ici
+          savePendingAnswersBeforeRedirect();
+          await window.PotentielAuth.signInWithGoogle();
+        }
+      } catch (err) {
+        console.error('Échec de la connexion Google', err);
+        googleBtn.disabled = false;
+      }
     });
+
+    const emailLink = document.createElement('button');
+    emailLink.type = 'button';
+    emailLink.className = 'conv-account-email-link';
+    emailLink.textContent = 'ou continuer avec mon email';
+    emailLink.addEventListener('click', () => {
+      renderAuthEmailForm(stage);
+    });
+
+    wrap.appendChild(googleBtn);
+    wrap.appendChild(emailLink);
+    stage.appendChild(wrap);
   }
 
   // -----------------------------------------------------------
-  // Proposition de création de compte, affichée après le message de
-  // fin. Permet au prospect de sauvegarder son estimation et de revenir
-  // plus tard suivre ses biens. Jamais bloquant : un bouton "plus tard"
-  // permet de quitter sans créer de compte, l'estimation a déjà été
-  // envoyée par email de toute façon.
+  // Formulaire email + mot de passe — gère à la fois la connexion (si
+  // le compte existe déjà) et l'inscription (sinon), pour ne pas
+  // imposer un choix supplémentaire au prospect à cette étape.
   // -----------------------------------------------------------
-  function renderAccountProposal() {
-    renderScene((stage) => {
-      addTypingThen(stage, "Souhaitez-vous créer un compte gratuit pour suivre ce bien, en estimer d'autres, et revenir consulter vos résultats à tout moment ?", () => {
-        const wrap = document.createElement('div');
-        wrap.className = 'conv-account-wrap';
-
-        const googleBtn = document.createElement('button');
-        googleBtn.type = 'button';
-        googleBtn.className = 'conv-choice-btn conv-google-btn';
-        googleBtn.innerHTML = `
-          <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84c-.21 1.13-.84 2.09-1.8 2.73v2.27h2.91c1.7-1.57 2.69-3.88 2.69-6.64z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.81 5.96-2.18l-2.91-2.27c-.81.54-1.84.86-3.05.86-2.35 0-4.34-1.58-5.05-3.71H.96v2.34C2.44 15.98 5.48 18 9 18z"/><path fill="#FBBC05" d="M3.95 10.7c-.18-.54-.28-1.11-.28-1.7s.1-1.16.28-1.7V4.96H.96A8.99 8.99 0 0 0 0 9c0 1.45.35 2.83.96 4.04l2.99-2.34z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0 5.48 0 2.44 2.02.96 4.96l2.99 2.34C4.66 5.16 6.65 3.58 9 3.58z"/></svg>
-          <span>Continuer avec Google</span>
-        `;
-        googleBtn.addEventListener('click', async () => {
-          googleBtn.disabled = true;
-          try {
-            if (window.PotentielAuth) {
-              await window.PotentielAuth.signInWithGoogle();
-              // signInWithGoogle redirige le navigateur vers Google,
-              // donc le code après cet appel ne s'exécute pas dans ce
-              // cycle — la suite se passe au retour sur le site.
-            }
-          } catch (err) {
-            console.error('Échec de la connexion Google', err);
-            googleBtn.disabled = false;
-          }
-        });
-
-        const emailLink = document.createElement('button');
-        emailLink.type = 'button';
-        emailLink.className = 'conv-account-email-link';
-        emailLink.textContent = 'ou créer un compte avec mon email';
-        emailLink.addEventListener('click', () => {
-          renderAccountEmailForm(stage);
-        });
-
-        const skipLink = document.createElement('button');
-        skipLink.type = 'button';
-        skipLink.className = 'conv-account-skip-link';
-        skipLink.textContent = 'Non merci, plus tard';
-        skipLink.addEventListener('click', () => {
-          // ne fait rien de plus : l'estimation est déjà envoyée par
-          // email, créer un compte est une option, pas une obligation
-          wrap.remove();
-        });
-
-        wrap.appendChild(googleBtn);
-        wrap.appendChild(emailLink);
-        wrap.appendChild(skipLink);
-        stage.appendChild(wrap);
-      });
-    });
-  }
-
-  // -----------------------------------------------------------
-  // Formulaire de création de compte par email + mot de passe,
-  // affiché en remplacement des boutons quand on clique sur le lien
-  // "créer un compte avec mon email".
-  // -----------------------------------------------------------
-  function renderAccountEmailForm(stage) {
+  function renderAuthEmailForm(stage) {
     const existingWrap = stage.querySelector('.conv-account-wrap');
     if (existingWrap) existingWrap.remove();
 
@@ -987,11 +931,11 @@ document.addEventListener('DOMContentLoaded', () => {
     formWrap.className = 'conv-contact-wrap';
     formWrap.innerHTML = `
       <div class="conv-input-row">
-        <input type="email" placeholder="votre@email.fr" inputmode="email" aria-label="Email du compte" value="${answers.email || ''}">
+        <input type="email" placeholder="votre@email.fr" inputmode="email" aria-label="Votre email">
       </div>
       <div class="conv-input-row">
-        <input type="password" placeholder="Choisissez un mot de passe (8 caractères min.)" aria-label="Mot de passe">
-        <button type="button" class="conv-send-btn" aria-label="Créer mon compte" disabled>
+        <input type="password" placeholder="Mot de passe (8 caractères min.)" aria-label="Mot de passe">
+        <button type="button" class="conv-send-btn" aria-label="Continuer" disabled>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8H14M14 8L9.5 3.5M14 8L9.5 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
       </div>
@@ -1000,7 +944,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const statusMsg = document.createElement('p');
     statusMsg.className = 'conv-fineprint';
-    statusMsg.textContent = '';
+    statusMsg.textContent = "Si vous n'avez pas encore de compte, il sera créé automatiquement.";
     stage.appendChild(statusMsg);
 
     const emailInput = formWrap.querySelector('input[type="email"]');
@@ -1012,21 +956,40 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     emailInput.addEventListener('input', refreshSendState);
     passwordInput.addEventListener('input', refreshSendState);
-    refreshSendState();
 
     async function submit() {
       if (sendBtn.disabled) return;
       sendBtn.disabled = true;
-      statusMsg.textContent = 'Création du compte en cours…';
+      statusMsg.textContent = 'Connexion en cours…';
+
+      const email = emailInput.value.trim();
+      const password = passwordInput.value;
 
       try {
         if (!window.PotentielAuth) throw new Error('Service de compte indisponible');
-        await window.PotentielAuth.signUpWithEmail(emailInput.value.trim(), passwordInput.value);
-        statusMsg.textContent = 'Compte créé ! Vérifiez votre email pour confirmer votre inscription.';
-        formWrap.querySelectorAll('input, button').forEach(el => el.disabled = true);
+
+        let user = null;
+        // tente d'abord la connexion (cas le plus fréquent pour un
+        // utilisateur qui revient) ; si le compte n'existe pas, bascule
+        // automatiquement sur la création, pour ne pas imposer un choix
+        // supplémentaire au prospect à cette étape du parcours.
+        try {
+          const signInData = await window.PotentielAuth.signInWithEmail(email, password);
+          user = signInData.user;
+        } catch (signInErr) {
+          const signUpData = await window.PotentielAuth.signUpWithEmail(email, password);
+          user = signUpData.user;
+        }
+
+        answers.email = email;
+        formWrap.remove();
+        statusMsg.remove();
+        addTypingThen(stage, "Merci ! Une dernière chose : à quel numéro un conseiller peut-il vous joindre pour commenter votre analyse ?", () => {
+          onAuthenticated(stage, user);
+        });
       } catch (err) {
-        console.error('Échec de la création de compte', err);
-        statusMsg.textContent = "Une erreur est survenue, réessayez dans un instant.";
+        console.error('Échec de la connexion/inscription', err);
+        statusMsg.textContent = "Une erreur est survenue. Vérifiez votre mot de passe ou réessayez dans un instant.";
         sendBtn.disabled = false;
       }
     }
@@ -1035,6 +998,114 @@ document.addEventListener('DOMContentLoaded', () => {
     passwordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
     setTimeout(() => emailInput.focus(), 100);
   }
+
+  // -----------------------------------------------------------
+  // Appelée une fois l'utilisateur authentifié (Google ou email) : on
+  // connaît désormais son identité, il ne reste qu'à demander le
+  // téléphone avant de finaliser le parcours (sauvegarde du bien et de
+  // l'estimation liés au compte, envoi des emails, enregistrement
+  // Airtable).
+  // -----------------------------------------------------------
+  function onAuthenticated(stage, user) {
+    if (user && user.email) answers.email = user.email;
+    convAuthenticatedUserId = user ? user.id : null;
+    renderPhoneCapture(stage);
+  }
+
+  function renderPhoneCapture(stage) {
+    const row = document.createElement('div');
+    row.className = 'conv-input-row';
+    row.innerHTML = `
+      <input type="tel" placeholder="Votre numéro de téléphone" inputmode="tel" aria-label="Votre téléphone">
+      <button type="button" class="conv-send-btn" aria-label="Envoyer" disabled>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8H14M14 8L9.5 3.5M14 8L9.5 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    `;
+    stage.appendChild(row);
+
+    const input = row.querySelector('input');
+    const sendBtn = row.querySelector('.conv-send-btn');
+
+    function isPhoneValid(value) {
+      return (value.match(/\d/g) || []).length >= 6;
+    }
+
+    input.addEventListener('input', () => {
+      sendBtn.disabled = !isPhoneValid(input.value);
+    });
+
+    async function submit() {
+      const phone = input.value.trim();
+      if (!isPhoneValid(phone)) return;
+      sendBtn.disabled = true;
+      answers.telephone = phone;
+      await finalizeJourney(stage);
+    }
+
+    sendBtn.addEventListener('click', submit);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    setTimeout(() => input.focus(), 100);
+  }
+
+  // -----------------------------------------------------------
+  // Finalisation du parcours : sauvegarde le bien + l'estimation dans
+  // Supabase (liés au compte), envoie les emails, enregistre dans
+  // Airtable, puis affiche le message de conclusion.
+  // -----------------------------------------------------------
+  async function finalizeJourney(stage) {
+    convProgressLabel.textContent = 'Analyse terminée';
+    convBackBtn.disabled = true;
+
+    renderScene((finalStage) => {
+      addTypingThen(finalStage, "Merci ! J'enregistre votre demande et je prépare votre rapport…", () => {});
+    });
+
+    const tasks = [
+      sendToAirtable(answers),
+      (window.EmailService
+        ? window.EmailService.sendReportEmails(answers, lastEstimationResult).catch(err => {
+            console.error('Échec de l\'envoi du rapport par email', err);
+            return { success: false };
+          })
+        : Promise.resolve({ success: false })),
+    ];
+
+    if (convAuthenticatedUserId && window.PotentielData) {
+      const savePropertyPromise = convReestimatePropertyId
+        ? window.PotentielData.updatePropertyAnswers(convReestimatePropertyId, answers)
+        : window.PotentielData.saveProperty(convAuthenticatedUserId, answers);
+
+      tasks.push(
+        savePropertyPromise
+          .then(property => window.PotentielData.saveEstimation(convAuthenticatedUserId, property.id, lastEstimationResult || {}))
+          .catch(err => {
+            console.error('Échec de la sauvegarde du bien dans l\'espace client', err);
+            return null;
+          })
+      );
+    }
+
+    const [airtableSuccess] = await Promise.all(tasks);
+
+    const firstName = answers.prenom ? answers.prenom.trim() : '';
+    const greeting = firstName ? `Merci ${firstName} ! ` : 'Merci ! ';
+
+    renderScene((finalStage) => {
+      const message = airtableSuccess
+        ? `${greeting}Votre analyse personnalisée pour votre ${(answers.typeBien || 'bien').toLowerCase()} arrive par email dans quelques instants, et reste disponible dans votre espace client. Un conseiller vous appellera prochainement pour vous expliquer les résultats en détail et répondre à toutes vos questions.`
+        : `${greeting}Votre demande a bien été reçue. Un léger souci technique est survenu de notre côté, mais ne vous inquiétez pas : un conseiller vous recontactera rapidement pour faire le point avec vous.`;
+      addTypingThen(finalStage, message, () => {
+        if (convAuthenticatedUserId) {
+          const link = document.createElement('a');
+          link.href = 'espace-client.html';
+          link.className = 'conv-choice-btn is-primary conv-space-client-link';
+          link.textContent = 'Accéder à mon espace client';
+          finalStage.appendChild(link);
+        }
+      });
+    });
+  }
+
 
   function goBack() {
     if (historyStack.length === 0) return;
@@ -1051,10 +1122,91 @@ document.addEventListener('DOMContentLoaded', () => {
 
   convBackBtn.addEventListener('click', goBack);
 
-  // Démarrage automatique de la conversation au chargement de la page
-  if (!hasStarted) {
+  // -----------------------------------------------------------
+  // Mode réestimation : arrivée depuis l'espace client avec un bien
+  // existant à modifier. Pré-remplit les réponses et démarre
+  // directement le questionnaire (déjà connecté, pas besoin de
+  // repasser par l'authentification).
+  // -----------------------------------------------------------
+  async function tryStartReestimation() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('reestimer') !== '1') return false;
+
+    let stored = null;
+    try {
+      const raw = sessionStorage.getItem('potentielImmo.reestimateProperty');
+      if (raw) stored = JSON.parse(raw);
+    } catch (err) {
+      console.warn('Impossible de lire les données de réestimation', err);
+    }
+    if (!stored) return false;
+
+    const user = window.PotentielAuth ? await window.PotentielAuth.getCurrentUser() : null;
+    if (!user) return false; // session expirée entre-temps : repli sur le parcours normal
+
+    sessionStorage.removeItem('potentielImmo.reestimateProperty');
+    Object.assign(answers, stored.answers || {});
+    convReestimatePropertyId = stored.propertyId || null;
+    convAuthenticatedUserId = user.id;
+
     hasStarted = true;
-    setTimeout(renderIntro, 500);
+    convProgress.hidden = false;
+    renderScene((stage) => {
+      addTypingThen(stage, "Reprenons ce bien : modifiez les réponses qui ont changé, et je recalcule votre potentiel à la fin.", () => {
+        flowIndex = 0;
+        renderStep(0);
+      });
+    });
+    return true;
+  }
+
+  // -----------------------------------------------------------
+  // Démarrage : si l'utilisateur revient d'une redirection Google avec
+  // des réponses en attente, on les restaure et on reprend directement
+  // à l'étape "téléphone" plutôt que de relancer tout le questionnaire
+  // depuis le début. Sinon, démarrage normal de la conversation.
+  // -----------------------------------------------------------
+  async function tryResumeAfterRedirect() {
+    const hasPending = restorePendingAnswersIfAny();
+    if (!hasPending) return false;
+
+    const user = window.PotentielAuth ? await window.PotentielAuth.getCurrentUser() : null;
+    if (!user) return false; // la connexion Google a échoué ou a été annulée
+
+    hasStarted = true;
+    convProgress.hidden = false;
+    convBackBtn.disabled = true;
+    renderScene((stage) => {
+      addTypingThen(stage, "Vous voilà connecté ! Une dernière chose : à quel numéro un conseiller peut-il vous joindre ?", () => {
+        onAuthenticated(stage, user);
+      });
+    });
+    return true;
+  }
+
+  if (!hasStarted) {
+    tryStartReestimation().then(async reestimating => {
+      if (reestimating) return;
+
+      const resumed = await tryResumeAfterRedirect();
+      if (resumed) return;
+
+      // Pas de parcours en cours à reprendre : si une session existe déjà
+      // (utilisateur revenu sur le site après s'être connecté précédemment),
+      // on le redirige vers la landing plutôt que de lui refaire passer le
+      // questionnaire — il y retrouvera son prénom et l'accès à son espace
+      // client. Sinon, démarrage normal du chatbot.
+      const existingUser = window.PotentielAuth ? await window.PotentielAuth.getCurrentUser() : null;
+      if (existingUser && !hasStarted) {
+        window.location.href = 'landing.html';
+        return;
+      }
+
+      if (!hasStarted) {
+        hasStarted = true;
+        setTimeout(renderIntro, 500);
+      }
+    });
   }
 
 });
