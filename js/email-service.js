@@ -15,13 +15,12 @@ const EmailService = (() => {
 
   const SEND_EMAIL_ENDPOINT = '/api/send-email';
 
-  // Adresse d'envoi : tant qu'aucun domaine n'est vérifié sur Resend, on
-  // utilise leur domaine de test par défaut (onboarding@resend.dev) qui
-  // fonctionne sans configuration, mais avec une délivrabilité limitée et
-  // un envoi restreint à l'adresse du compte Resend. À remplacer par une
-  // adresse sur ton propre domaine une fois vérifié dans Resend
-  // (ex: contact@potentielimmo.com).
-  const FROM_ADDRESS = 'Potentiel Immo <onboarding@resend.dev>';
+  // Adresse d'envoi sur le domaine vérifié Potentiel Immo (potentielimmo.com),
+  // vérifié auprès de Resend via les enregistrements DKIM/SPF/DMARC —
+  // permet l'envoi vers n'importe quel destinataire, plus seulement vers
+  // l'adresse du compte Resend comme c'était le cas avec le domaine de
+  // test resend.dev utilisé avant cette vérification.
+  const FROM_ADDRESS = 'Potentiel Immo <contact@potentielimmo.com>';
   const INTERNAL_COPY_ADDRESS = 'glyanomilaba@gmail.com';
 
   function buildProspectEmailHtml(answers, primary) {

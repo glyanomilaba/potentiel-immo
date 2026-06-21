@@ -50,7 +50,7 @@ export default async function handler(req, res) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: from || 'Potentiel Immo <onboarding@resend.dev>',
+        from: from || 'Potentiel Immo <contact@potentielimmo.com>',
         to: Array.isArray(to) ? to : [to],
         subject,
         html,
