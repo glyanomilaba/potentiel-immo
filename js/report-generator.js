@@ -102,17 +102,8 @@ const ReportGenerator = (() => {
   // -----------------------------------------------------------
   // Construction du document HTML complet
   // -----------------------------------------------------------
-  function buildReportHtml(answers, result) {
-    const primary = (result && (result.longue || result.vente || result)) || null;
-    const recommendations = buildRecommendations(answers, primary);
-    const dateStr = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
-
+  function buildReportCss() {
     return `
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8">
-<style>
   * { box-sizing: border-box; }
   body {
     font-family: 'Helvetica', 'Arial', sans-serif;
@@ -160,10 +151,18 @@ const ReportGenerator = (() => {
     background: #0B1E3D; color: #F5F3EE; border-radius: 8px; padding: 18px 22px; margin-top: 24px;
   }
   .report-cta p { color: #F5F3EE; margin: 0; font-size: 13px; }
-</style>
-</head>
-<body>
+    `;
+  }
 
+  // Construit uniquement le contenu qui irait dans <body> — pas de
+  // <html>/<head>/<body>, pour pouvoir être injecté tel quel dans un
+  // conteneur (div) sans produire de HTML structurellement invalide.
+  function buildReportBodyHtml(answers, result) {
+    const primary = (result && (result.longue || result.vente || result)) || null;
+    const recommendations = buildRecommendations(answers, primary);
+    const dateStr = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    return `
   <div class="report-header">
     <div class="report-logo">Potentiel<em>Immo</em></div>
     <div class="report-date">Rapport généré le ${dateStr}</div>
@@ -207,7 +206,21 @@ const ReportGenerator = (() => {
   <div class="report-footer">
     <p>Ce rapport est une estimation indicative basée sur les informations déclarées et des données de marché publiques. Il ne constitue pas une expertise immobilière formelle. Potentiel Immo — contact@potentielimmo.fr</p>
   </div>
+    `;
+  }
 
+  // Document HTML complet (avec <html>/<head>/<body>) — utile si on veut
+  // un jour afficher le rapport comme une vraie page web autonome.
+  function buildReportHtml(answers, result) {
+    return `
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<style>${buildReportCss()}</style>
+</head>
+<body>
+${buildReportBodyHtml(answers, result)}
 </body>
 </html>
     `;
@@ -232,13 +245,31 @@ const ReportGenerator = (() => {
   async function generatePdfBlob(answers, result) {
     await ensureHtml2Pdf();
 
-    const html = buildReportHtml(answers, result);
+    const bodyHtml = buildReportBodyHtml(answers, result);
+
+    // Le CSS est ajouté comme une vraie balise <style> dans le <head> du
+    // document courant (scopée par préfixe de classe "report-", donc sans
+    // risque de fuite vers le reste de la page) plutôt qu'injecté dans la
+    // div elle-même : une <div> ne peut pas contenir <style> de façon
+    // fiable selon les navigateurs, et ne peut jamais contenir
+    // <html>/<head>/<body>, ce qui produisait un PDF vide.
+    const styleTag = document.createElement('style');
+    styleTag.textContent = buildReportCss();
+    document.head.appendChild(styleTag);
+
     const container = document.createElement('div');
     container.style.position = 'fixed';
     container.style.left = '-9999px';
+    container.style.top = '0';
     container.style.width = '794px'; // largeur A4 à 96dpi
-    container.innerHTML = html;
+    container.style.background = '#ffffff';
+    container.innerHTML = bodyHtml;
     document.body.appendChild(container);
+
+    // laisse le temps au navigateur de calculer la mise en page avant
+    // que html2canvas ne capture le rendu (utile notamment en environnement
+    // de production où le timing peut différer du test en local).
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
     try {
       const worker = window.html2pdf()
@@ -246,15 +277,23 @@ const ReportGenerator = (() => {
           margin: 0,
           filename: 'potentiel-immo-rapport.pdf',
           image: { type: 'jpeg', quality: 0.95 },
-          html2canvas: { scale: 2, useCORS: true },
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
           jsPDF: { unit: 'px', format: 'a4', orientation: 'portrait' },
         })
         .from(container);
 
       const pdfBlob = await worker.outputPdf('blob');
+
+      if (!pdfBlob || pdfBlob.size < 1000) {
+        // un PDF de quelques centaines d'octets seulement est presque
+        // certainement vide (page blanche) plutôt qu'une erreur silencieuse
+        throw new Error(`PDF généré anormalement petit (${pdfBlob ? pdfBlob.size : 0} octets) — probablement vide.`);
+      }
+
       return pdfBlob;
     } finally {
       container.remove();
+      styleTag.remove();
     }
   }
 
