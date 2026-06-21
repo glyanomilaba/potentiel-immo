@@ -1191,15 +1191,28 @@ document.addEventListener('DOMContentLoaded', () => {
       const resumed = await tryResumeAfterRedirect();
       if (resumed) return;
 
+      const params = new URLSearchParams(window.location.search);
+      const forceNew = params.get('nouveau') === '1';
+
       // Pas de parcours en cours à reprendre : si une session existe déjà
-      // (utilisateur revenu sur le site après s'être connecté précédemment),
-      // on le redirige vers la landing plutôt que de lui refaire passer le
-      // questionnaire — il y retrouvera son prénom et l'accès à son espace
-      // client. Sinon, démarrage normal du chatbot.
+      // ET que la personne n'a pas explicitement demandé à estimer un
+      // nouveau bien (depuis son espace client), on la redirige vers la
+      // landing plutôt que de lui refaire passer le questionnaire — elle
+      // y retrouvera son prénom et l'accès à son espace client.
       const existingUser = window.PotentielAuth ? await window.PotentielAuth.getCurrentUser() : null;
-      if (existingUser && !hasStarted) {
+
+      if (existingUser && !forceNew && !hasStarted) {
         window.location.href = 'landing.html';
         return;
+      }
+
+      // Si elle vient bien pour un nouveau bien et qu'elle est déjà
+      // connectée, on retient son identité dès maintenant : elle n'aura
+      // pas à repasser par la porte d'authentification à la fin du
+      // parcours (déjà identifiée, comme pour une réestimation).
+      if (existingUser && forceNew) {
+        convAuthenticatedUserId = existingUser.id;
+        if (existingUser.email) answers.email = existingUser.email;
       }
 
       if (!hasStarted) {

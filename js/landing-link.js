@@ -71,9 +71,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }, { passive: true });
   }
 
-  // Tous les CTA de la landing renvoient vers l'accueil conversationnel
+  // Tous les CTA de la landing renvoient vers l'accueil conversationnel.
+  // Le paramètre ?nouveau=1 indique explicitement une intention de
+  // démarrer un nouveau parcours : sans lui, Loop redirige automatiquement
+  // vers la landing pour quelqu'un déjà connecté (pour éviter de lui
+  // refaire passer le questionnaire à chaque retour sur le site) — mais
+  // ici, la personne vient justement de cliquer pour estimer un bien,
+  // donc ce comportement ne doit pas s'appliquer.
   document.querySelectorAll('[data-cta]').forEach(el => {
-    el.setAttribute('href', 'index.html');
+    el.setAttribute('href', 'index.html?nouveau=1');
   });
 
 });
