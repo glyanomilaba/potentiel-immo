@@ -1,0 +1,914 @@
+// Potentiel Immo — accueil conversationnel plein écran (mascotte Loop)
+// Mode "scène unique" : une seule question affichée à la fois, transitions
+// d'entrée/sortie, pas d'historique empilé ni de défilement de page.
+
+// -----------------------------------------------------------
+// Enregistrement des prospects
+// L'envoi passe par la fonction serverless /api/save-prospect (voir
+// api/save-prospect.js), qui relaie vers Airtable côté serveur. Le token
+// Airtable n'est jamais présent dans ce fichier : il est configuré
+// uniquement dans les variables d'environnement de l'hébergement
+// (Vercel), pour ne jamais être visible dans le code source de la page.
+// -----------------------------------------------------------
+const SAVE_PROSPECT_ENDPOINT = '/api/save-prospect';
+
+// Convertit les réponses collectées (clés internes type "typeBien") vers
+// les noms de colonnes exacts de la table Airtable "Prospects".
+function mapAnswersToAirtableFields(answers) {
+  return {
+    'Prenom': answers.prenom || '',
+    'Nom': answers.nom || '',
+    'Objectif': answers.objectif || '',
+    'Type location': answers.typeLocation || '',
+    'Adresse': answers.adresse || '',
+    'Type de bien': answers.typeBien || '',
+    'Surface': answers.surface || '',
+    'Pièces': answers.pieces || '',
+    'Étage': answers.etage || '',
+    'Ascenseur': answers.ascenseur || '',
+    'Année construction': answers.anneeConstruction || '',
+    'DPE': answers.dpe || '',
+    'Extérieur': answers.exterieur || '',
+    'Stationnement': answers.stationnement || '',
+    'Exposition': answers.exposition || '',
+    'État': answers.etat || '',
+    'Travaux récents': answers.travauxRecents || '',
+    'Email': answers.email || '',
+    'Téléphone': answers.telephone || '',
+    'Estimation': answers.estimationResume || '',
+    'Statut': 'Nouveau',
+    // Note : les champs "Appel effectué le", "Consentement obtenu par appel"
+    // et "Notes appel" ne sont volontairement pas envoyés ici — ils sont
+    // remplis manuellement dans Airtable après l'appel téléphonique.
+    // Les envoyer vides depuis le site fait échouer la requête si la colonne
+    // Airtable est typée "Date" (Airtable refuse une chaîne vide pour ce type).
+  };
+}
+
+// Envoie les réponses vers Airtable (via la fonction serverless relais).
+// Renvoie true/false selon le succès, ne lève jamais d'exception pour ne
+// pas casser l'expérience utilisateur : un échec d'envoi ne doit jamais
+// empêcher d'afficher le message de fin.
+async function sendToAirtable(answers) {
+  try {
+    const res = await fetch(SAVE_PROSPECT_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        fields: mapAnswersToAirtableFields(answers),
+      }),
+    });
+
+    if (!res.ok) {
+      const errorBody = await res.text();
+      console.error('Échec de l\'envoi vers Airtable', res.status, errorBody);
+      return false;
+    }
+
+    const data = await res.json();
+    console.log('Prospect enregistré dans Airtable, id :', data.id);
+    return true;
+  } catch (err) {
+    console.error('Erreur réseau lors de l\'envoi vers Airtable', err);
+    return false;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+
+  const convThread = document.getElementById('convThread');
+  const convProgress = document.getElementById('convProgress');
+  const convProgressFill = document.getElementById('convProgressFill');
+  const convProgressLabel = document.getElementById('convProgressLabel');
+  const convBackBtn = document.getElementById('convBackBtn');
+  const orbMascot = document.getElementById('orbMascot');
+  const mascotZone = document.querySelector('.conv-mascot-zone');
+
+  if (!convThread) return;
+
+  // -----------------------------------------------------------
+  // États et mouvements visuels de la mascotte
+  // -----------------------------------------------------------
+  function setOrbState(state) {
+    // state : 'idle' | 'typing' | 'happy'
+    orbMascot.classList.remove('orb-idle', 'orb-typing', 'orb-happy');
+    orbMascot.classList.add('orb-' + state);
+  }
+
+  const bounceVariants = ['is-bounce-1', 'is-bounce-2', 'is-bounce-3'];
+  function bounceMascot() {
+    bounceVariants.forEach(c => mascotZone.classList.remove(c));
+    void mascotZone.offsetWidth; // force reflow pour pouvoir rejouer l'animation
+    const variant = bounceVariants[Math.floor(Math.random() * bounceVariants.length)];
+    mascotZone.classList.add(variant);
+  }
+
+  // -----------------------------------------------------------
+  // État de la conversation
+  // -----------------------------------------------------------
+  const answers = {};
+  let lastEstimationResult = null; // conserve le résultat complet du moteur, pour le PDF/email
+  let flowIndex = 0;
+  let hasStarted = false;
+  const historyStack = []; // pile de { index, answersSnapshot, blockTitleBefore }
+  let lastRenderedBlockTitle = null;
+
+  // -----------------------------------------------------------
+  // Script de conversation organisé en blocs thématiques
+  // -----------------------------------------------------------
+  const blocks = [
+    {
+      title: null,
+      steps: [
+        {
+          key: 'identite',
+          bot: "Pour commencer, comment puis-je vous appeler ?",
+          type: 'identity',
+        },
+      ],
+    },
+    {
+      title: 'Le projet',
+      steps: [
+        {
+          key: 'objectif',
+          bot: "Quel est votre objectif ?",
+          type: 'choice',
+          choices: ['Vendre', 'Louer', 'Optimiser un bien déjà loué', 'Je ne sais pas encore'],
+        },
+        {
+          key: 'typeLocation',
+          bot: "Vous visez plutôt la location longue durée ou la location courte durée (type Airbnb) ?",
+          type: 'choice',
+          choices: ['Longue durée', 'Courte durée', 'Les deux m\'intéressent'],
+          skip: a => !['Louer', 'Optimiser un bien déjà loué'].includes(a.objectif),
+        },
+      ],
+    },
+    {
+      title: 'Localisation',
+      steps: [
+        {
+          key: 'adresse',
+          bot: "Quelle est l'adresse exacte du bien ? Cela me permet de comparer avec les biens réellement vendus ou loués dans votre rue.",
+          type: 'address',
+          placeholder: "Commencez à taper l'adresse…",
+        },
+      ],
+    },
+    {
+      title: 'Le bien',
+      steps: [
+        {
+          key: 'typeBien',
+          bot: "De quel type de bien s'agit-il ?",
+          type: 'choice',
+          choices: ['Studio', 'Appartement', 'Maison', 'Immeuble'],
+        },
+        {
+          key: 'surface',
+          bot: "Quelle est sa surface habitable, en m² (loi Carrez si copropriété) ?",
+          type: 'text',
+          placeholder: 'Ex : 65',
+          inputMode: 'numeric',
+          hint: 'Indiquez une valeur la plus précise possible : elle influence directement le calcul de votre estimation.',
+        },
+        {
+          key: 'pieces',
+          bot: "Combien de pièces compte le bien (hors cuisine et salle de bain) ?",
+          type: 'text',
+          placeholder: 'Ex : 3',
+          inputMode: 'numeric',
+          hint: 'Un nombre exact permet une comparaison plus fiable avec des biens similaires.',
+        },
+        {
+          key: 'etage',
+          bot: "À quel étage se situe-t-il ?",
+          type: 'choice',
+          choices: ['Rez-de-chaussée', '1er à 3e étage', '4e étage et plus', 'Dernier étage'],
+          skip: a => !['Studio', 'Appartement', 'Immeuble'].includes(a.typeBien),
+        },
+        {
+          key: 'ascenseur',
+          bot: "L'immeuble dispose-t-il d'un ascenseur ?",
+          type: 'choice',
+          choices: ['Oui', 'Non', 'Non concerné'],
+          skip: a => !['Studio', 'Appartement', 'Immeuble'].includes(a.typeBien),
+        },
+        {
+          key: 'anneeConstruction',
+          bot: "De quand date la construction, approximativement ?",
+          type: 'choice',
+          choices: ['Avant 1945', '1945 – 1980', '1980 – 2010', 'Après 2010'],
+        },
+        {
+          key: 'dpe',
+          bot: "Connaissez-vous le DPE (diagnostic de performance énergétique) du bien ?",
+          type: 'choice',
+          choices: ['A ou B', 'C ou D', 'E ou F', 'G', 'Je ne sais pas'],
+        },
+      ],
+    },
+    {
+      title: 'Confort et atouts',
+      steps: [
+        {
+          key: 'exterieur',
+          bot: "Le bien dispose-t-il d'un espace extérieur ?",
+          type: 'choice',
+          choices: ['Balcon', 'Terrasse', 'Jardin', 'Aucun'],
+        },
+        {
+          key: 'stationnement',
+          bot: "Et côté stationnement ?",
+          type: 'choice',
+          choices: ['Garage', 'Place réservée', 'Aucun'],
+        },
+        {
+          key: 'exposition',
+          bot: "Quelle est l'exposition principale du bien ?",
+          type: 'choice',
+          choices: ['Sud', 'Nord', 'Est / Ouest', 'Je ne sais pas'],
+        },
+      ],
+    },
+    {
+      title: 'État du bien',
+      steps: [
+        {
+          key: 'etat',
+          bot: "Dans quel état général se trouve le bien aujourd'hui ?",
+          type: 'choice',
+          choices: ['Neuf / récent', 'Bon état', 'À rafraîchir', 'Travaux à prévoir'],
+        },
+        {
+          key: 'travauxRecents',
+          bot: "Des travaux ont-ils été réalisés récemment (moins de 5 ans) ?",
+          type: 'choice',
+          choices: ['Oui, rénovation complète', 'Oui, travaux partiels', 'Non'],
+        },
+      ],
+    },
+  ];
+
+  function resolveFlow() {
+    const flow = [];
+    blocks.forEach(block => {
+      block.steps.forEach(step => {
+        if (typeof step.skip === 'function' && step.skip(answers)) return;
+        flow.push({ ...step, blockTitle: block.title });
+      });
+    });
+    return flow;
+  }
+
+  function updateProgress(index, total) {
+    const pct = Math.round((index / total) * 100);
+    convProgressFill.style.width = pct + '%';
+    convProgressLabel.textContent = index < total
+      ? `Étape ${index + 1} sur ${total}`
+      : 'Analyse terminée';
+    convBackBtn.disabled = index === 0;
+  }
+
+  // -----------------------------------------------------------
+  // Mécanique de scène : une seule "carte" affichée à la fois.
+  // `renderScene(buildFn)` anime la sortie de la scène courante,
+  // vide le conteneur, appelle buildFn(stage) pour construire la
+  // nouvelle scène, puis l'anime en entrée.
+  // -----------------------------------------------------------
+  function renderScene(buildFn) {
+    const current = convThread.querySelector('.conv-stage');
+
+    function mount() {
+      const stage = document.createElement('div');
+      stage.className = 'conv-stage is-entering';
+      convThread.appendChild(stage);
+      buildFn(stage);
+      stage.addEventListener('animationend', () => {
+        stage.classList.remove('is-entering');
+      }, { once: true });
+    }
+
+    if (current) {
+      current.classList.add('is-leaving');
+      current.addEventListener('animationend', () => {
+        current.remove();
+        mount();
+      }, { once: true });
+    } else {
+      mount();
+    }
+  }
+
+  function renderBlockHeaderInto(stage, title) {
+    if (!title) return;
+    const header = document.createElement('div');
+    header.className = 'conv-block-header';
+    header.innerHTML = `<span class="conv-block-line"></span><span>${title}</span><span class="conv-block-line"></span>`;
+    stage.appendChild(header);
+  }
+
+  function addTypingThen(stage, text, onDone) {
+    setOrbState('typing');
+    const typing = document.createElement('div');
+    typing.className = 'conv-typing';
+    typing.innerHTML = '<span></span><span></span><span></span>';
+    stage.appendChild(typing);
+
+    const delay = 500 + Math.random() * 300;
+    setTimeout(() => {
+      typing.remove();
+      const msg = document.createElement('div');
+      msg.className = 'conv-msg conv-msg-bot';
+      msg.textContent = text;
+      stage.appendChild(msg);
+      setOrbState('happy');
+      setTimeout(() => setOrbState('idle'), 600);
+      onDone();
+    }, delay);
+  }
+
+  function addConfirmedAnswer(stage, text) {
+    const tag = document.createElement('span');
+    tag.className = 'conv-msg-user';
+    tag.textContent = text;
+    stage.appendChild(tag);
+    bounceMascot();
+  }
+
+  // -----------------------------------------------------------
+  // Inputs
+  // -----------------------------------------------------------
+  function renderChoiceInput(stage, step, onAnswered) {
+    const wrap = document.createElement('div');
+    wrap.className = 'conv-choices';
+
+    step.choices.forEach(choice => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'conv-choice-btn';
+      btn.textContent = choice;
+      btn.addEventListener('click', () => {
+        wrap.querySelectorAll('button').forEach(b => b.disabled = true);
+        onAnswered(choice);
+      });
+      wrap.appendChild(btn);
+    });
+
+    stage.appendChild(wrap);
+  }
+
+  function renderTextInput(stage, step, onAnswered) {
+    const wrap = document.createElement('div');
+    wrap.className = 'conv-field-wrap';
+
+    const row = document.createElement('div');
+    row.className = 'conv-input-row';
+    row.innerHTML = `
+      <input type="text" placeholder="${step.placeholder || ''}" ${step.inputMode ? `inputmode="${step.inputMode}"` : ''} aria-label="${step.bot}">
+      <button type="button" class="conv-send-btn" aria-label="Envoyer" disabled>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8H14M14 8L9.5 3.5M14 8L9.5 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    `;
+    wrap.appendChild(row);
+
+    if (step.hint) {
+      const hint = document.createElement('p');
+      hint.className = 'conv-fineprint';
+      hint.textContent = step.hint;
+      wrap.appendChild(hint);
+    }
+
+    stage.appendChild(wrap);
+
+    const input = row.querySelector('input');
+    const sendBtn = row.querySelector('.conv-send-btn');
+
+    input.addEventListener('input', () => {
+      sendBtn.disabled = input.value.trim().length === 0;
+    });
+
+    function submit() {
+      const value = input.value.trim();
+      if (!value) return;
+      onAnswered(value);
+    }
+
+    sendBtn.addEventListener('click', submit);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    setTimeout(() => input.focus(), 100);
+  }
+
+  // Champ identité : prénom + nom, avec précision sur l'usage de la donnée
+  function renderIdentityInput(stage, step, onAnswered) {
+    const wrap = document.createElement('div');
+    wrap.className = 'conv-contact-wrap';
+    wrap.innerHTML = `
+      <div class="conv-input-row">
+        <input type="text" placeholder="Votre prénom" aria-label="Votre prénom">
+      </div>
+      <div class="conv-input-row">
+        <input type="text" placeholder="Votre nom" aria-label="Votre nom">
+        <button type="button" class="conv-send-btn" aria-label="Envoyer" disabled>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8H14M14 8L9.5 3.5M14 8L9.5 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    `;
+    stage.appendChild(wrap);
+
+    const fineprint = document.createElement('p');
+    fineprint.className = 'conv-fineprint';
+    fineprint.textContent = "Ces informations apparaîtront sur votre rapport d'estimation.";
+    stage.appendChild(fineprint);
+
+    const inputs = wrap.querySelectorAll('input');
+    const firstNameInput = inputs[0];
+    const lastNameInput = inputs[1];
+    const sendBtn = wrap.querySelector('.conv-send-btn');
+
+    function refreshSendState() {
+      sendBtn.disabled = firstNameInput.value.trim().length === 0 || lastNameInput.value.trim().length === 0;
+    }
+
+    firstNameInput.addEventListener('input', refreshSendState);
+    lastNameInput.addEventListener('input', refreshSendState);
+
+    function submit() {
+      const firstName = firstNameInput.value.trim();
+      const lastName = lastNameInput.value.trim();
+      if (!firstName || !lastName) return;
+      onAnswered({ prenom: firstName, nom: lastName });
+    }
+
+    sendBtn.addEventListener('click', submit);
+    firstNameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') lastNameInput.focus(); });
+    lastNameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    setTimeout(() => firstNameInput.focus(), 100);
+  }
+
+  // Champ adresse avec autocomplétion via l'API officielle de la Base Adresse Nationale (IGN)
+  function renderAddressInput(stage, step, onAnswered) {
+    const row = document.createElement('div');
+    row.className = 'conv-input-row conv-input-row-address';
+    row.innerHTML = `
+      <div class="conv-address-field">
+        <input type="text" placeholder="${step.placeholder || ''}" autocomplete="off" aria-label="${step.bot}" aria-autocomplete="list">
+        <div class="conv-address-suggestions" hidden></div>
+      </div>
+      <button type="button" class="conv-send-btn" aria-label="Envoyer" disabled>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8H14M14 8L9.5 3.5M14 8L9.5 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    `;
+    stage.appendChild(row);
+
+    const input = row.querySelector('input');
+    const sendBtn = row.querySelector('.conv-send-btn');
+    const suggestionsBox = row.querySelector('.conv-address-suggestions');
+
+    let selectedLabel = null;
+    let selectedGeo = null;
+    let debounceTimer = null;
+    let activeIndex = -1;
+    let currentResults = [];
+
+    async function fetchSuggestions(query) {
+      try {
+        const url = `https://data.geopf.fr/geocodage/completion/?text=${encodeURIComponent(query)}&type=StreetAddress&maximumResponses=5`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('network');
+        const data = await res.json();
+        return (data.results || []).map(r => r.fulltext || r.street || '').filter(Boolean);
+      } catch (err) {
+        return [];
+      }
+    }
+
+    function renderSuggestions(results) {
+      currentResults = results;
+      activeIndex = -1;
+      if (!results.length) {
+        suggestionsBox.hidden = true;
+        suggestionsBox.innerHTML = '';
+        return;
+      }
+      suggestionsBox.innerHTML = results.map((r, i) =>
+        `<button type="button" class="conv-address-option" data-index="${i}">${r}</button>`
+      ).join('');
+      suggestionsBox.hidden = false;
+
+      suggestionsBox.querySelectorAll('.conv-address-option').forEach(btn => {
+        btn.addEventListener('click', () => {
+          selectAddress(results[Number(btn.dataset.index)]);
+        });
+      });
+    }
+
+    function selectAddress(label) {
+      selectedLabel = label;
+      input.value = label;
+      suggestionsBox.hidden = true;
+      sendBtn.disabled = false;
+      input.classList.add('is-verified');
+      // géolocalise l'adresse choisie en arrière-plan (endpoint /search, format GeoJSON standard)
+      fetchGeocode(label);
+    }
+
+    async function fetchGeocode(addressLabel) {
+      try {
+        const url = `https://data.geopf.fr/geocodage/search?q=${encodeURIComponent(addressLabel)}&limit=1`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('network');
+        const data = await res.json();
+        const feature = data.features && data.features[0];
+        if (feature && feature.geometry && Array.isArray(feature.geometry.coordinates)) {
+          const [lon, lat] = feature.geometry.coordinates;
+          selectedGeo = { lat, lon };
+        }
+      } catch (err) {
+        // pas grave : le moteur d'estimation utilisera son repli sans géolocalisation
+        selectedGeo = null;
+      }
+    }
+
+    input.addEventListener('input', () => {
+      selectedLabel = null;
+      selectedGeo = null;
+      input.classList.remove('is-verified');
+      sendBtn.disabled = true;
+      const query = input.value.trim();
+      clearTimeout(debounceTimer);
+      if (query.length < 3) {
+        suggestionsBox.hidden = true;
+        return;
+      }
+      debounceTimer = setTimeout(async () => {
+        const results = await fetchSuggestions(query);
+        renderSuggestions(results);
+      }, 280);
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (suggestionsBox.hidden) {
+        if (e.key === 'Enter') submit();
+        return;
+      }
+      const options = suggestionsBox.querySelectorAll('.conv-address-option');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        activeIndex = Math.min(activeIndex + 1, options.length - 1);
+        options.forEach((o, i) => o.classList.toggle('is-active', i === activeIndex));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        activeIndex = Math.max(activeIndex - 1, 0);
+        options.forEach((o, i) => o.classList.toggle('is-active', i === activeIndex));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (activeIndex >= 0 && currentResults[activeIndex]) {
+          selectAddress(currentResults[activeIndex]);
+        } else {
+          submit();
+        }
+      }
+    });
+
+    function submit() {
+      const value = (selectedLabel || input.value.trim());
+      if (!value) return;
+      onAnswered(value, { verified: Boolean(selectedLabel), geo: selectedGeo });
+    }
+
+    sendBtn.addEventListener('click', submit);
+    setTimeout(() => input.focus(), 100);
+  }
+
+  function renderEmailCapture(stage, onAnswered) {
+    const wrap = document.createElement('div');
+    wrap.className = 'conv-contact-wrap';
+    wrap.innerHTML = `
+      <div class="conv-input-row">
+        <input type="email" placeholder="votre@email.fr" inputmode="email" aria-label="Votre email">
+      </div>
+      <div class="conv-input-row">
+        <input type="tel" placeholder="Votre numéro de téléphone" inputmode="tel" aria-label="Votre téléphone">
+        <button type="button" class="conv-send-btn" aria-label="Envoyer" disabled>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8H14M14 8L9.5 3.5M14 8L9.5 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    `;
+    stage.appendChild(wrap);
+
+    const emailInput = wrap.querySelector('input[type="email"]');
+    const phoneInput = wrap.querySelector('input[type="tel"]');
+    const sendBtn = wrap.querySelector('.conv-send-btn');
+
+    function isPhoneValid(value) {
+      // au moins 6 chiffres, pour rester tolérant aux formats (espaces, +33, etc.)
+      return (value.match(/\d/g) || []).length >= 6;
+    }
+
+    function refreshSendState() {
+      sendBtn.disabled = !emailInput.value.includes('@') || !isPhoneValid(phoneInput.value);
+    }
+
+    emailInput.addEventListener('input', refreshSendState);
+    phoneInput.addEventListener('input', refreshSendState);
+
+    function submit() {
+      const email = emailInput.value.trim();
+      const phone = phoneInput.value.trim();
+      if (!email.includes('@') || !isPhoneValid(phone)) return;
+      onAnswered(email, phone);
+    }
+
+    sendBtn.addEventListener('click', submit);
+    emailInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') phoneInput.focus(); });
+    phoneInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    setTimeout(() => emailInput.focus(), 100);
+  }
+
+  // -----------------------------------------------------------
+  // Scène d'accueil : présentation de Loop + pause d'engagement
+  // -----------------------------------------------------------
+  function renderIntro() {
+    renderScene((stage) => {
+      addTypingThen(stage, "Bonjour, je suis Loop, votre assistante Potentiel Immo. Je vais vous poser quelques questions précises, un peu comme le ferait un expert immobilier, pour estimer ce que votre bien peut réellement vous rapporter.", () => {
+        const wrap = document.createElement('div');
+        wrap.className = 'conv-intro-actions';
+
+        const startBtn = document.createElement('button');
+        startBtn.type = 'button';
+        startBtn.className = 'conv-choice-btn is-primary';
+        startBtn.textContent = "Oui, c'est parti";
+
+        const laterBtn = document.createElement('button');
+        laterBtn.type = 'button';
+        laterBtn.className = 'conv-choice-btn';
+        laterBtn.textContent = "Je préfère en savoir plus d'abord";
+
+        startBtn.addEventListener('click', () => {
+          bounceMascot();
+          convProgress.hidden = false;
+          renderStep(0);
+        });
+
+        laterBtn.addEventListener('click', () => {
+          if (typeof showLanding === 'function') {
+            showLanding();
+          } else {
+            window.location.href = 'landing.html';
+          }
+        });
+
+        wrap.appendChild(startBtn);
+        wrap.appendChild(laterBtn);
+        stage.appendChild(wrap);
+
+        const confidentialityNote = document.createElement('p');
+        confidentialityNote.className = 'conv-fineprint';
+        confidentialityNote.textContent = "Vos réponses restent confidentielles et ne sont transmises à un partenaire qu'avec votre accord.";
+        stage.appendChild(confidentialityNote);
+      });
+    });
+  }
+
+  function renderStep(index) {
+    const flow = resolveFlow();
+    updateProgress(index, flow.length);
+
+    if (index >= flow.length) {
+      renderScene((stage) => {
+        addTypingThen(stage, "Merci, j'ai toutes les informations nécessaires.", () => {
+          renderAnalysisLoader();
+        });
+      });
+      return;
+    }
+
+    const step = flow[index];
+    const blockTitleBefore = lastRenderedBlockTitle;
+    const isNewBlock = step.blockTitle !== lastRenderedBlockTitle;
+    if (isNewBlock) lastRenderedBlockTitle = step.blockTitle;
+
+    // empile l'état pour le retour arrière (snapshot léger des réponses)
+    historyStack.push({
+      index,
+      answersSnapshot: { ...answers },
+      blockTitleBefore,
+    });
+
+    renderScene((stage) => {
+      if (isNewBlock) renderBlockHeaderInto(stage, step.blockTitle);
+
+      addTypingThen(stage, step.bot, () => {
+        const onAnswered = (value, meta) => {
+          if (step.type === 'identity') {
+            // value = { prenom, nom } — on stocke les deux clés et on affiche un résumé lisible
+            answers.prenom = value.prenom;
+            answers.nom = value.nom;
+            addConfirmedAnswer(stage, `${value.prenom} ${value.nom}`);
+          } else {
+            // affiche la confirmation de la réponse dans la scène courante avant de continuer
+            addConfirmedAnswer(stage, value);
+            answers[step.key] = value;
+            if (step.type === 'address' && meta && meta.geo) {
+              answers.geo = meta.geo;
+            }
+          }
+          flowIndex = index + 1;
+          setTimeout(() => renderStep(flowIndex), 320);
+        };
+
+        if (step.type === 'choice') {
+          renderChoiceInput(stage, step, onAnswered);
+        } else if (step.type === 'address') {
+          renderAddressInput(stage, step, onAnswered);
+        } else if (step.type === 'text') {
+          renderTextInput(stage, step, onAnswered);
+        } else if (step.type === 'identity') {
+          renderIdentityInput(stage, step, onAnswered);
+        }
+      });
+    });
+  }
+
+  // -----------------------------------------------------------
+  // Écran de chargement "analyse en cours" : barre de progression
+  // 0→100% avec des messages de statut qui changent, pour donner
+  // une impression de calcul réel plutôt qu'une réponse instantanée.
+  // -----------------------------------------------------------
+  function renderAnalysisLoader() {
+    const loaderSteps = [
+      "Analyse du marché local…",
+      "Comparaison avec les biens similaires…",
+      "Calcul du potentiel locatif…",
+      "Vérification des données du quartier…",
+      "Croisement des tendances de prix…",
+      "Finalisation de votre rapport…",
+    ];
+
+    renderScene((stage) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'conv-loader';
+      wrap.innerHTML = `
+        <div class="conv-loader-bar-track">
+          <div class="conv-loader-bar-fill" id="loaderFill"></div>
+        </div>
+        <div class="conv-loader-pct" id="loaderPct">0%</div>
+        <div class="conv-loader-label" id="loaderLabel">${loaderSteps[0]}</div>
+      `;
+      stage.appendChild(wrap);
+
+      const fill = wrap.querySelector('#loaderFill');
+      const pct = wrap.querySelector('#loaderPct');
+      const label = wrap.querySelector('#loaderLabel');
+
+      const totalDuration = 6200; // ms — ralenti pour paraître plus minutieux
+      const start = performance.now();
+      let lastStepIndex = 0;
+
+      function tick(now) {
+        const elapsed = now - start;
+        const progress = Math.min(elapsed / totalDuration, 1);
+        // easing : démarre vite, ralentit en approchant 100% (impression de calcul minutieux)
+        const eased = 1 - Math.pow(1 - progress, 2);
+        const percent = Math.round(eased * 100);
+
+        fill.style.width = percent + '%';
+        pct.textContent = percent + '%';
+
+        const stepIndex = Math.min(
+          Math.floor(progress * loaderSteps.length),
+          loaderSteps.length - 1
+        );
+        if (stepIndex !== lastStepIndex || elapsed < 50) {
+          lastStepIndex = stepIndex;
+          label.textContent = loaderSteps[stepIndex];
+        }
+
+        if (progress < 1) {
+          requestAnimationFrame(tick);
+        } else {
+          setTimeout(() => renderTeaser(), 400);
+        }
+      }
+
+      requestAnimationFrame(tick);
+    });
+  }
+
+  // -----------------------------------------------------------
+  // Scène teaser : aperçu chiffré flouté + accroche, avant la
+  // demande d'email. Le chiffre vient désormais du vrai moteur
+  // d'estimation (window.EstimationEngine), basé sur DVF / Observatoires
+  // des loyers / méthode courte durée selon l'objectif déclaré.
+  // -----------------------------------------------------------
+  function pickPrimaryResult(result) {
+    // Réduit un résultat potentiellement composite (mixte/indécis) à un
+    // seul chiffre à afficher dans le teaser flouté, avec son unité.
+    if (!result) return null;
+    if (result.type === 'location-mixte') {
+      return result.longue || result.courte;
+    }
+    if (result.type === 'indecis') {
+      return result.vente || result.longue || result.courte;
+    }
+    return result;
+  }
+
+  async function renderTeaser() {
+    renderScene((stage) => {
+      addTypingThen(stage, "Voilà, votre analyse est prête.", async () => {
+        let figureText = '···';
+        let unitText = '';
+
+        try {
+          if (window.EstimationEngine) {
+            const result = await window.EstimationEngine.estimate(answers, answers.geo);
+            lastEstimationResult = result;
+            const primary = pickPrimaryResult(result);
+            if (primary && typeof primary.pointEstimate === 'number') {
+              figureText = primary.pointEstimate.toLocaleString('fr-FR');
+              unitText = primary.unit || '';
+              answers.estimationResume = `${primary.pointEstimate} ${primary.unit} (${primary.sourceLabel || ''})`;
+            }
+          }
+        } catch (err) {
+          console.warn('Estimation indisponible, affichage générique du teaser.', err);
+        }
+
+        const teaser = document.createElement('div');
+        teaser.className = 'conv-teaser';
+        teaser.innerHTML = `
+          <span class="conv-teaser-label">Potentiel identifié</span>
+          <span class="conv-teaser-figure"><span class="conv-teaser-blur">${figureText}</span><span class="conv-teaser-unit">${unitText}</span></span>
+          <span class="conv-teaser-hint">Recevez le détail complet et les recommandations par email</span>
+        `;
+        stage.appendChild(teaser);
+
+        setTimeout(() => {
+          addTypingThen(stage, "À quelle adresse email et à quel numéro puis-je vous joindre ? Un conseiller pourra ainsi vous appeler pour commenter votre analyse.", () => {
+            renderFinalEmailCapture(stage);
+          });
+        }, 600);
+      });
+    });
+  }
+
+  function renderFinalEmailCapture(stage) {
+    renderEmailCapture(stage, async (email, phone) => {
+      answers.email = email;
+      answers.telephone = phone;
+      convProgressLabel.textContent = 'Analyse terminée';
+      convBackBtn.disabled = true;
+
+      renderScene((finalStage) => {
+        addTypingThen(finalStage, "Merci ! J'enregistre votre demande et je prépare votre rapport…", () => {});
+      });
+
+      const [airtableSuccess, emailResult] = await Promise.all([
+        sendToAirtable(answers),
+        (window.EmailService
+          ? window.EmailService.sendReportEmails(answers, lastEstimationResult).catch(err => {
+              console.error('Échec de l\'envoi du rapport par email', err);
+              return { success: false };
+            })
+          : Promise.resolve({ success: false })),
+      ]);
+
+      const firstName = answers.prenom ? answers.prenom.trim() : '';
+      const greeting = firstName ? `Merci ${firstName} ! ` : 'Merci ! ';
+
+      renderScene((finalStage) => {
+        const message = airtableSuccess
+          ? `${greeting}Votre analyse personnalisée pour votre ${(answers.typeBien || 'bien').toLowerCase()} arrive par email dans quelques instants. Un conseiller vous appellera prochainement pour vous expliquer les résultats en détail et répondre à toutes vos questions.`
+          : `${greeting}Votre demande a bien été reçue. Un léger souci technique est survenu de notre côté, mais ne vous inquiétez pas : un conseiller vous recontactera rapidement pour faire le point avec vous.`;
+        addTypingThen(finalStage, message, () => {});
+      });
+    });
+  }
+
+  function goBack() {
+    if (historyStack.length === 0) return;
+    const last = historyStack.pop();
+
+    // restaure les réponses telles qu'elles étaient avant cette étape
+    Object.keys(answers).forEach(k => delete answers[k]);
+    Object.assign(answers, last.answersSnapshot);
+
+    lastRenderedBlockTitle = last.blockTitleBefore;
+    flowIndex = last.index;
+    renderStep(flowIndex);
+  }
+
+  convBackBtn.addEventListener('click', goBack);
+
+  // Démarrage automatique de la conversation au chargement de la page
+  if (!hasStarted) {
+    hasStarted = true;
+    setTimeout(renderIntro, 500);
+  }
+
+});

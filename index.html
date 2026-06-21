@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Potentiel Immo — Découvrez le vrai potentiel de votre bien</title>
+<meta name="description" content="Recevez une analyse personnalisée du potentiel locatif et patrimonial de votre bien en 2 minutes. Gratuit, sans engagement.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/conversation.css">
+</head>
+<body>
+
+<div class="conv-screen">
+
+  <!-- En-tête minimal : marque + lien discret vers la landing complète -->
+  <header class="conv-topbar">
+    <span class="conv-logo">Potentiel<em>Immo</em></span>
+    <a href="landing.html" class="conv-learnmore">En savoir plus</a>
+  </header>
+
+  <!-- Barre de progression, masquée tant que la conversation n'a pas commencé -->
+  <div class="conv-progress" id="convProgress" hidden>
+    <button type="button" class="conv-back-btn" id="convBackBtn" aria-label="Question précédente" disabled>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9.5 2.5L4.5 7L9.5 11.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="conv-progress-track">
+      <div class="conv-progress-fill" id="convProgressFill"></div>
+    </div>
+    <span class="conv-progress-label" id="convProgressLabel">Étape 1 sur 13</span>
+  </div>
+
+  <!-- Zone centrale : mascotte + fil de conversation -->
+  <main class="conv-main">
+    <div class="conv-mascot-zone">
+      <span class="orb orb-idle conv-orb" id="orbMascot" aria-hidden="true">
+        <span class="orb-ring"></span>
+        <span class="orb-core"></span>
+      </span>
+      <p class="conv-mascot-name">Loop</p>
+    </div>
+
+    <div class="conv-thread" id="convThread">
+      <!-- messages, choix et champs injectés en JS -->
+    </div>
+  </main>
+
+</div>
+
+<script src="js/estimation-engine.js"></script>
+<script src="js/report-generator.js"></script>
+<script src="js/email-service.js"></script>
+<script src="js/conversation.js"></script>
+</body>
+</html>
