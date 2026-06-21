@@ -145,6 +145,27 @@ document.addEventListener('DOMContentLoaded', () => {
           choices: ['Longue durée', 'Courte durée', 'Les deux m\'intéressent'],
           skip: a => !['Louer', 'Optimiser un bien déjà loué'].includes(a.objectif),
         },
+        {
+          key: 'horizon',
+          bot: "Pour vous aider à y voir plus clair : vous envisagez plutôt ce projet à court terme, ou sur le long terme ?",
+          type: 'choice',
+          choices: ['Court terme (besoin rapide de liquidités)', 'Long terme (constituer un patrimoine)', 'Pas encore décidé'],
+          skip: a => a.objectif !== 'Je ne sais pas encore',
+        },
+        {
+          key: 'priorite',
+          bot: "Qu'est-ce qui compte le plus pour vous aujourd'hui ?",
+          type: 'choice',
+          choices: ['Un capital disponible rapidement', 'Un revenu régulier dans le temps', 'Les deux se valent pour moi'],
+          skip: a => a.objectif !== 'Je ne sais pas encore',
+        },
+        {
+          key: 'disponibiliteGestion',
+          bot: "Êtes-vous prêt à vous impliquer un peu dans la gestion (ou à passer par un partenaire), ou préférez-vous la solution la plus simple possible ?",
+          type: 'choice',
+          choices: ['Je suis disponible pour m\'impliquer', 'Je préfère le plus simple possible', 'Peu importe, je passerai par un partenaire'],
+          skip: a => a.objectif !== 'Je ne sais pas encore',
+        },
       ],
     },
     {
