@@ -51,9 +51,10 @@ const PotentielAuth = (() => {
   // confirmation par défaut — selon la configuration du projet, le
   // compte peut nécessiter une validation avant la première connexion.
   // -----------------------------------------------------------
-  async function signUpWithEmail(email, password) {
+  async function signUpWithEmail(email, password, metadata) {
     const client = await ensureSupabaseClient();
-    const { data, error } = await client.auth.signUp({ email, password });
+    const options = metadata ? { data: metadata } : undefined;
+    const { data, error } = await client.auth.signUp({ email, password, options });
     if (error) throw error;
     return data;
   }

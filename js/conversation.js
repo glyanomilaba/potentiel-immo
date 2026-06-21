@@ -128,6 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
           key: 'identite',
           bot: "Pour commencer, comment puis-je vous appeler ?",
           type: 'identity',
+          skip: a => Boolean(a.prenom && a.nom),
         },
       ],
     },
@@ -858,11 +859,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setTimeout(() => {
           if (convAuthenticatedUserId) {
-            // déjà connecté (mode réestimation) : pas besoin de repasser
-            // par l'authentification, on enchaîne directement
-            addTypingThen(stage, "Je mets à jour votre estimation…", () => {
-              finalizeJourney(stage);
-            });
+            // déjà connecté (réestimation ou nouveau bien) : pas besoin de
+            // repasser par l'authentification. On redemande le téléphone
+            // uniquement s'il n'est pas déjà connu (ex: première
+            // estimation faite depuis l'espace client, jamais demandé).
+            if (!answers.telephone) {
+              addTypingThen(stage, "Une dernière chose : à quel numéro un conseiller peut-il vous joindre ?", () => {
+                renderPhoneCapture(stage);
+              });
+            } else {
+              addTypingThen(stage, "Je mets à jour votre estimation…", () => {
+                finalizeJourney(stage);
+              });
+            }
             return;
           }
           addTypingThen(stage, "Pour découvrir le détail complet de votre analyse et la retrouver à tout moment, connectez-vous ou créez votre compte gratuit.", () => {
@@ -977,7 +986,9 @@ document.addEventListener('DOMContentLoaded', () => {
           const signInData = await window.PotentielAuth.signInWithEmail(email, password);
           user = signInData.user;
         } catch (signInErr) {
-          const signUpData = await window.PotentielAuth.signUpWithEmail(email, password);
+          const signUpData = await window.PotentielAuth.signUpWithEmail(email, password, {
+            full_name: [answers.prenom, answers.nom].filter(Boolean).join(' '),
+          });
           user = signUpData.user;
         }
 
@@ -1213,6 +1224,18 @@ document.addEventListener('DOMContentLoaded', () => {
       if (existingUser && forceNew) {
         convAuthenticatedUserId = existingUser.id;
         if (existingUser.email) answers.email = existingUser.email;
+
+        // récupère le prénom/nom déjà connus, qu'ils viennent de Google
+        // (full_name/name) ou d'une précédente inscription par email
+        // (full_name enregistré comme métadonnée à l'inscription) — pour
+        // ne pas redemander une information déjà en notre possession.
+        const meta = existingUser.user_metadata || {};
+        const fullName = meta.full_name || meta.name || '';
+        if (fullName) {
+          const parts = fullName.trim().split(/\s+/);
+          answers.prenom = parts[0] || '';
+          answers.nom = parts.slice(1).join(' ') || '';
+        }
       }
 
       if (!hasStarted) {

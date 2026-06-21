@@ -63,7 +63,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       properties = await window.PotentielData.listProperties(userId);
     } catch (err) {
       console.error('Échec du chargement des biens', err);
-      loadingEl.innerHTML = '<p>Impossible de charger vos biens pour le moment. Réessayez dans un instant.</p>';
+      const detail = (err && err.message) ? err.message : 'erreur inconnue';
+      loadingEl.innerHTML = `<p>Impossible de charger vos biens pour le moment (${escapeHtml(detail)}). Réessayez dans un instant.</p>`;
+      loadingEl.hidden = false;
+      emptyEl.hidden = true;
+      gridEl.hidden = true;
       return;
     }
 
@@ -208,6 +212,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       console.warn('Impossible de préparer la réestimation', err);
     }
     window.location.href = 'index.html?reestimer=1';
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
   }
 
   function formatObjectifLabel(answers) {
