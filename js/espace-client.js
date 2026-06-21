@@ -79,10 +79,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (properties.length === 0) {
       console.log('[diag] Aucun bien, affichage état vide');
       emptyEl.hidden = false;
+      gridEl.hidden = true;
+      gridEl.innerHTML = '';
       return;
     }
 
+    emptyEl.hidden = true;
     gridEl.hidden = false;
+    gridEl.innerHTML = ''; // évite tout cumul si la fonction était appelée plusieurs fois
     console.log('[diag] Avant Promise.all sur', properties.length, 'bien(s)');
 
     // charge en parallèle la dernière estimation de chaque bien
@@ -107,6 +111,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       console.error('[diag] Promise.all a levé une exception inattendue', err);
       loadingEl.hidden = false;
       loadingEl.innerHTML = `<p>Une erreur inattendue est survenue (${escapeHtml(err && err.message || 'inconnue')}).</p>`;
+      emptyEl.hidden = true;
       gridEl.hidden = true;
       return;
     }

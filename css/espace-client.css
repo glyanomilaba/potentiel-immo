@@ -4,6 +4,15 @@
    --navy, --blue, --cyan, --cream, --green, --font-display, etc.)
    =========================================================== */
 
+/* Garantit que l'attribut HTML natif [hidden] masque bien les éléments,
+   même quand ils portent une classe qui fixe explicitement `display`
+   (ex: .ec-loading, .ec-empty en `display: flex`). Sans cette règle, la
+   spécificité de la classe l'emporte sur la règle implicite du
+   navigateur pour [hidden], et l'élément reste visible malgré l'attribut
+   — c'est ce qui causait l'empilement visuel des états chargement/vide/
+   grille les uns sous les autres. */
+[hidden]{ display: none !important; }
+
 .ec-body{ background: var(--cream); min-height: 100vh; }
 
 .ec-main{ padding: 56px 0 120px; }
