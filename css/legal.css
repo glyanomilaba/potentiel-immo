@@ -17,7 +17,18 @@
   font-family: var(--font-display); font-size: 36px; font-weight: 500;
   color: var(--navy); margin: 0 0 8px;
 }
-.legal-updated{ font-size: 13px; color: var(--gray-light); margin: 0 0 48px; }
+.legal-updated{ font-size: 13px; color: var(--gray-light); margin: 0 0 32px; }
+
+.legal-intro{
+  font-size: 16px; line-height: 1.7; color: var(--navy);
+  margin: 0 0 40px; padding-bottom: 28px; border-bottom: 1px solid var(--line);
+}
+
+.legal-emphasis{
+  background: var(--blue-tint); border-radius: var(--radius-md);
+  padding: 16px 18px; margin: 16px 0 0;
+  font-weight: 600;
+}
 
 .legal-section{ margin-bottom: 36px; }
 .legal-section h2{
