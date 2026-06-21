@@ -693,13 +693,52 @@ ${buildReportBodyHtml(answers, result)}
     );
 
     if (isRecommended) {
+      const intentionMention = buildIntentionMention(answers, 'vente');
       paragraphs.push(
         `Au vu de l'ensemble de ces éléments, la vente apparaît comme l'option la plus pertinente pour vous : elle permet de dégager un capital ` +
-        `immédiat et conséquent, sans les contraintes de gestion qu'impliquerait une mise en location, et dans un contexte de marché qui ne plaide pas pour un report de la décision.`
+        `immédiat et conséquent, sans les contraintes de gestion qu'impliquerait une mise en location, et dans un contexte de marché qui ne plaide pas pour un report de la décision.` +
+        (intentionMention ? ` ${intentionMention}` : '')
       );
     }
 
     return paragraphs;
+  }
+
+  // -----------------------------------------------------------
+  // Construit une phrase reconnaissant explicitement les préférences
+  // exprimées par le prospect indécis (horizon, priorité, disponibilité
+  // pour la gestion), pour que le rapport ne semble pas ignorer ce qu'il
+  // vient de répondre. Ne s'affiche que si au moins une réponse exploite
+  // est disponible (donc jamais pour ceux qui avaient déjà choisi
+  // Vendre/Louer sans passer par ces questions).
+  // -----------------------------------------------------------
+  function buildIntentionMention(answers, optionType) {
+    const { horizon, priorite, disponibiliteGestion } = answers;
+    if (!horizon && !priorite && !disponibiliteGestion) return '';
+
+    const isRentalOption = optionType !== 'vente';
+    const bits = [];
+
+    if (priorite === 'Un capital disponible rapidement' && optionType === 'vente') {
+      bits.push("vous avez indiqué privilégier un capital disponible rapidement");
+    } else if (priorite === 'Un revenu régulier dans le temps' && isRentalOption) {
+      bits.push("vous avez indiqué privilégier un revenu régulier dans le temps");
+    }
+
+    if (horizon === 'Long terme (constituer un patrimoine)' && isRentalOption) {
+      bits.push("votre projet s'inscrit dans une logique de long terme");
+    } else if (horizon === 'Court terme (besoin rapide de liquidités)' && optionType === 'vente') {
+      bits.push("votre besoin se situe plutôt à court terme");
+    }
+
+    if (disponibiliteGestion === 'Je préfère le plus simple possible' && optionType !== 'location-courte') {
+      bits.push("vous recherchez la solution la plus simple à gérer");
+    }
+
+    if (bits.length === 0) return '';
+
+    const joined = bits.length === 1 ? bits[0] : `${bits.slice(0, -1).join(', ')} et ${bits[bits.length - 1]}`;
+    return `Cette recommandation tient aussi compte de ce que vous nous avez indiqué : ${joined}, ce qui renforce la pertinence de cette option pour votre situation.`;
   }
 
   function buildRentalAnalysisText(answers, locResult, financials, yieldInfo, marketTension, isRecommended, isShortTerm) {
@@ -742,8 +781,11 @@ ${buildReportBodyHtml(answers, result)}
     }
 
     if (isRecommended) {
+      const optionType = isShortTerm ? 'location-courte' : 'location-longue';
+      const intentionMention = buildIntentionMention(answers, optionType);
       paragraphs.push(
-        `Au vu de l'ensemble de ces éléments — niveau de revenu, rendement et facilité de gestion — la ${modeLabel} ressort comme l'option la plus avantageuse pour votre bien.`
+        `Au vu de l'ensemble de ces éléments — niveau de revenu, rendement et facilité de gestion — la ${modeLabel} ressort comme l'option la plus avantageuse pour votre bien.` +
+        (intentionMention ? ` ${intentionMention}` : '')
       );
     }
 
@@ -1187,7 +1229,12 @@ ${buildReportBodyHtml(answers, result)}
     const yieldLongue = FC && finLongue && venteResult ? FC.computeYield(finLongue, venteResult.pointEstimate) : null;
     const yieldCourte = FC && finCourte && venteResult ? FC.computeYield(finCourte, venteResult.pointEstimate) : null;
     const marketTension = FC && venteResult ? FC.estimateMarketTension(venteResult) : null;
-    const bestOption = FC ? FC.pickBestOption({ vente: venteResult, locationLongue: locLongueResult, locationCourte: locCourteResult }) : null;
+    const intentions = {
+      horizon: answers.horizon,
+      priorite: answers.priorite,
+      disponibiliteGestion: answers.disponibiliteGestion,
+    };
+    const bestOption = FC ? FC.pickBestOption({ vente: venteResult, locationLongue: locLongueResult, locationCourte: locCourteResult }, intentions) : null;
     const bestType = bestOption ? bestOption.type : null;
 
     const cityLabel = extractCityFromAddress(answers.adresse);
