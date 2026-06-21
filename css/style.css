@@ -816,7 +816,8 @@ a:focus-visible, button:focus-visible, .btn:focus-visible{
 /* ---------- Zone d'authentification (header) ---------- */
 .header-auth-zone{ display: flex; align-items: center; gap: 12px; }
 .header-auth-greeting{
-  font-size: 14px; font-weight: 600; color: var(--navy);
+  font-size: 14px; font-weight: 600; color: var(--cream);
+  opacity: 0.85;
 }
 .btn-header-secondary{
   font-family: inherit; font-size: 13.5px; font-weight: 600; color: var(--blue);
@@ -875,10 +876,23 @@ a:focus-visible, button:focus-visible, .btn:focus-visible{
 .login-modal-status{ font-size: 12.5px; color: #EF4444; min-height: 16px; margin: 10px 0 0; }
 .login-modal-fineprint{ font-size: 11.5px; color: #9CA3AF; margin: 4px 0 0; line-height: 1.5; }
 
+@media (max-width: 860px){
+  .header-nav{ display: none; }
+  .header-auth-greeting{ display: none; }
+}
+
 @media (max-width: 600px){
   .hero{ padding: 64px 0 72px; }
   .hero-copy h1{ font-size: 38px; }
   section{ padding: 64px 0; }
   .section-title{ font-size: 32px; }
   .container{ padding: 0 20px; }
+
+  .header-inner{ height: 64px; gap: 8px; }
+  .header-auth-zone{ gap: 6px; }
+  .btn-header-secondary{ padding: 7px 12px; font-size: 12px; }
+  .btn-header{ padding: 7px 12px; font-size: 12px; }
+  .logo-text{ font-size: 16px; }
+
+  .login-modal{ padding: 28px 22px; }
 }

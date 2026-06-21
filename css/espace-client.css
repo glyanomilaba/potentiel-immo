@@ -135,4 +135,10 @@
   .ec-title{ font-size: 30px; }
   .ec-new-btn{ width: 100%; justify-content: center; }
   .ec-properties-grid{ grid-template-columns: 1fr; }
+
+  .ec-property-card{ padding: 22px 18px 18px; }
+  .ec-property-card-footer{ flex-direction: column; align-items: flex-start; gap: 12px; }
+  .ec-property-actions{ width: 100%; }
+  .ec-pdf-btn, .ec-reestimate-btn{ flex: 1; justify-content: center; }
+  .ec-property-menu{ right: 18px; left: 18px; min-width: 0; }
 }
