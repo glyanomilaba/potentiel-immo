@@ -906,9 +906,134 @@ document.addEventListener('DOMContentLoaded', () => {
         const message = airtableSuccess
           ? `${greeting}Votre analyse personnalisée pour votre ${(answers.typeBien || 'bien').toLowerCase()} arrive par email dans quelques instants. Un conseiller vous appellera prochainement pour vous expliquer les résultats en détail et répondre à toutes vos questions.`
           : `${greeting}Votre demande a bien été reçue. Un léger souci technique est survenu de notre côté, mais ne vous inquiétez pas : un conseiller vous recontactera rapidement pour faire le point avec vous.`;
-        addTypingThen(finalStage, message, () => {});
+        addTypingThen(finalStage, message, () => {
+          setTimeout(() => renderAccountProposal(), 700);
+        });
       });
     });
+  }
+
+  // -----------------------------------------------------------
+  // Proposition de création de compte, affichée après le message de
+  // fin. Permet au prospect de sauvegarder son estimation et de revenir
+  // plus tard suivre ses biens. Jamais bloquant : un bouton "plus tard"
+  // permet de quitter sans créer de compte, l'estimation a déjà été
+  // envoyée par email de toute façon.
+  // -----------------------------------------------------------
+  function renderAccountProposal() {
+    renderScene((stage) => {
+      addTypingThen(stage, "Souhaitez-vous créer un compte gratuit pour suivre ce bien, en estimer d'autres, et revenir consulter vos résultats à tout moment ?", () => {
+        const wrap = document.createElement('div');
+        wrap.className = 'conv-account-wrap';
+
+        const googleBtn = document.createElement('button');
+        googleBtn.type = 'button';
+        googleBtn.className = 'conv-choice-btn conv-google-btn';
+        googleBtn.innerHTML = `
+          <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84c-.21 1.13-.84 2.09-1.8 2.73v2.27h2.91c1.7-1.57 2.69-3.88 2.69-6.64z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.81 5.96-2.18l-2.91-2.27c-.81.54-1.84.86-3.05.86-2.35 0-4.34-1.58-5.05-3.71H.96v2.34C2.44 15.98 5.48 18 9 18z"/><path fill="#FBBC05" d="M3.95 10.7c-.18-.54-.28-1.11-.28-1.7s.1-1.16.28-1.7V4.96H.96A8.99 8.99 0 0 0 0 9c0 1.45.35 2.83.96 4.04l2.99-2.34z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0 5.48 0 2.44 2.02.96 4.96l2.99 2.34C4.66 5.16 6.65 3.58 9 3.58z"/></svg>
+          <span>Continuer avec Google</span>
+        `;
+        googleBtn.addEventListener('click', async () => {
+          googleBtn.disabled = true;
+          try {
+            if (window.PotentielAuth) {
+              await window.PotentielAuth.signInWithGoogle();
+              // signInWithGoogle redirige le navigateur vers Google,
+              // donc le code après cet appel ne s'exécute pas dans ce
+              // cycle — la suite se passe au retour sur le site.
+            }
+          } catch (err) {
+            console.error('Échec de la connexion Google', err);
+            googleBtn.disabled = false;
+          }
+        });
+
+        const emailLink = document.createElement('button');
+        emailLink.type = 'button';
+        emailLink.className = 'conv-account-email-link';
+        emailLink.textContent = 'ou créer un compte avec mon email';
+        emailLink.addEventListener('click', () => {
+          renderAccountEmailForm(stage);
+        });
+
+        const skipLink = document.createElement('button');
+        skipLink.type = 'button';
+        skipLink.className = 'conv-account-skip-link';
+        skipLink.textContent = 'Non merci, plus tard';
+        skipLink.addEventListener('click', () => {
+          // ne fait rien de plus : l'estimation est déjà envoyée par
+          // email, créer un compte est une option, pas une obligation
+          wrap.remove();
+        });
+
+        wrap.appendChild(googleBtn);
+        wrap.appendChild(emailLink);
+        wrap.appendChild(skipLink);
+        stage.appendChild(wrap);
+      });
+    });
+  }
+
+  // -----------------------------------------------------------
+  // Formulaire de création de compte par email + mot de passe,
+  // affiché en remplacement des boutons quand on clique sur le lien
+  // "créer un compte avec mon email".
+  // -----------------------------------------------------------
+  function renderAccountEmailForm(stage) {
+    const existingWrap = stage.querySelector('.conv-account-wrap');
+    if (existingWrap) existingWrap.remove();
+
+    const formWrap = document.createElement('div');
+    formWrap.className = 'conv-contact-wrap';
+    formWrap.innerHTML = `
+      <div class="conv-input-row">
+        <input type="email" placeholder="votre@email.fr" inputmode="email" aria-label="Email du compte" value="${answers.email || ''}">
+      </div>
+      <div class="conv-input-row">
+        <input type="password" placeholder="Choisissez un mot de passe (8 caractères min.)" aria-label="Mot de passe">
+        <button type="button" class="conv-send-btn" aria-label="Créer mon compte" disabled>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8H14M14 8L9.5 3.5M14 8L9.5 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    `;
+    stage.appendChild(formWrap);
+
+    const statusMsg = document.createElement('p');
+    statusMsg.className = 'conv-fineprint';
+    statusMsg.textContent = '';
+    stage.appendChild(statusMsg);
+
+    const emailInput = formWrap.querySelector('input[type="email"]');
+    const passwordInput = formWrap.querySelector('input[type="password"]');
+    const sendBtn = formWrap.querySelector('.conv-send-btn');
+
+    function refreshSendState() {
+      sendBtn.disabled = !emailInput.value.includes('@') || passwordInput.value.length < 8;
+    }
+    emailInput.addEventListener('input', refreshSendState);
+    passwordInput.addEventListener('input', refreshSendState);
+    refreshSendState();
+
+    async function submit() {
+      if (sendBtn.disabled) return;
+      sendBtn.disabled = true;
+      statusMsg.textContent = 'Création du compte en cours…';
+
+      try {
+        if (!window.PotentielAuth) throw new Error('Service de compte indisponible');
+        await window.PotentielAuth.signUpWithEmail(emailInput.value.trim(), passwordInput.value);
+        statusMsg.textContent = 'Compte créé ! Vérifiez votre email pour confirmer votre inscription.';
+        formWrap.querySelectorAll('input, button').forEach(el => el.disabled = true);
+      } catch (err) {
+        console.error('Échec de la création de compte', err);
+        statusMsg.textContent = "Une erreur est survenue, réessayez dans un instant.";
+        sendBtn.disabled = false;
+      }
+    }
+
+    sendBtn.addEventListener('click', submit);
+    passwordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    setTimeout(() => emailInput.focus(), 100);
   }
 
   function goBack() {

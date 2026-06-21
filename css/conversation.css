@@ -407,6 +407,28 @@ a:focus-visible, button:focus-visible, input:focus-visible{
   outline: 2px solid var(--cyan); outline-offset: 2px;
 }
 
+/* ---------- Proposition de compte (fin de parcours) ---------- */
+.conv-account-wrap{
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  margin-top: 4px;
+}
+.conv-google-btn{
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  min-width: 240px;
+  background: var(--cream); color: var(--navy-deep); border-color: var(--cream);
+}
+.conv-google-btn:hover{ background: #fff; border-color: #fff; transform: translateY(-1px); }
+.conv-google-btn svg{ flex-shrink: 0; }
+.conv-account-email-link, .conv-account-skip-link{
+  font-family: var(--font-body); font-size: 13.5px;
+  background: none; border: none; cursor: pointer;
+  color: rgba(245,243,238,0.55); text-decoration: underline;
+  text-underline-offset: 3px; padding: 4px;
+  transition: color 0.15s ease;
+}
+.conv-account-email-link:hover, .conv-account-skip-link:hover{ color: var(--cyan); }
+.conv-account-skip-link{ color: rgba(245,243,238,0.3); }
+
 /* ---------- Mobile ---------- */
 @media (max-width: 600px){
   .conv-topbar{ padding: 16px 18px; }
