@@ -21,7 +21,7 @@ const EmailService = (() => {
   // l'adresse du compte Resend comme c'était le cas avec le domaine de
   // test resend.dev utilisé avant cette vérification.
   const FROM_ADDRESS = 'Potentiel Immo <contact@potentielimmo.com>';
-  const INTERNAL_COPY_ADDRESS = 'glyanomilaba@gmail.com';
+  const INTERNAL_COPY_ADDRESS = 'contact@potentielimmo.com';
 
   function buildProspectEmailHtml(answers, primary) {
     const prenom = answers.prenom || '';
