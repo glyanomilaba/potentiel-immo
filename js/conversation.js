@@ -1097,6 +1097,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const [airtableSuccess] = await Promise.all(tasks);
+    // Événement Lead Meta Pixel
+if (airtableSuccess && typeof fbq !== 'undefined') {
+  fbq('track', 'Lead', {
+    content_category: 'Estimation immobilière',
+    content_name: answers.typeBien || 'Bien immobilier',
+  });
+}
 
     const firstName = answers.prenom ? answers.prenom.trim() : '';
     const greeting = firstName ? `Merci ${firstName} ! ` : 'Merci ! ';
